@@ -30,6 +30,26 @@
 
         .camera-wrapper.active { border-color: #2ea6ff; }
         .camera-wrapper.success { border-color: #34c759; }
+        
+        /* Desktop uchun kamera yuklanayotganda ko'rsatish */
+        .camera-wrapper.loading {
+            background: #ffd700 !important; /* Sariq rang */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .camera-wrapper.loading::after {
+            content: "Kamera yuklanmoqda...";
+            color: #000;
+            font-size: 14px;
+            font-weight: bold;
+            position: absolute;
+        }
+        
+        .camera-wrapper.loading video {
+            display: none;
+        }
 
         video {
             width: 100%; height: 100%; object-fit: cover;
@@ -106,6 +126,8 @@
         let detectionInterval;
         let cameraStream = null;
         let locationVerified = false;
+        let centerCount = 0; // To'g'riga qarab bo'lish uchun counter
+        const REQUIRED_CENTER_COUNT = 10; // 10 marta to'g'ri bo'lishi kerak (2 soniya)
 
         // Ofis lokatsiyasi (config.json dan)
         const OFFICE_LOCATION = {
@@ -261,10 +283,12 @@
                 }
                 
                 // Kamera parametrlarini moslashtirish
+                // Desktop va mobil uchun moslashuvchan
                 let constraints = {
                     video: {
-                        facingMode: "user",
-                        // Ideal o'lchamlar o'rniga moslashuvchan parametrlar
+                        // Avval "user" (old kamera) bilan urinib ko'ramiz
+                        facingMode: { ideal: "user" },
+                        // Ideal o'lchamlar
                         width: { min: 320, ideal: 640, max: 1280 },
                         height: { min: 240, ideal: 480, max: 720 }
                     },
@@ -272,30 +296,59 @@
                 };
                 
                 // Agar ideal o'lchamlar ishlamasa, oddiy parametrlar bilan urinib ko'ramiz
-                if (retryCount > 0) {
-                    constraints.video = { facingMode: "user" };
+                if (retryCount === 1) {
+                    // Ikkinchi urinish: faqat facingMode
+                    constraints.video = { facingMode: { ideal: "user" } };
+                } else if (retryCount >= 2) {
+                    // Uchinchi urinish: har qanday kamera
+                    constraints.video = true; // Har qanday kamera
                 }
                 
                 debugTxt.innerText = `Kamera ochilmoqda... (${retryCount + 1}/${maxRetries + 1})`;
+                
+                // Loading ko'rsatish
+                camBox.classList.add('loading');
                 
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 cameraStream = stream; // Streamni saqlash
                 video.srcObject = stream;
                 
+                // Loading ni olib tashlash
+                camBox.classList.remove('loading');
+                
                 video.onloadedmetadata = () => {
+                    // Video metadata yuklangandan keyin play qilish
                     video.play().then(() => {
-                        debugTxt.innerText = "Kamera tayyor!";
-                        title.innerText = "⬅️ Boshingizni CHAPGA buring";
-                        updateDots(1);
-                        currentStep = 1; 
-                        camBox.classList.add('active');
-                        
-                        // Tekshiruvni boshlash
-                        detectionInterval = setInterval(detectFace, 200);
+                        // Video o'ynatilgandan keyin biroz kutish (desktop uchun)
+                        setTimeout(() => {
+                            if (video.readyState >= 2) { // HAVE_CURRENT_DATA yoki undan yuqori
+                                debugTxt.innerText = "Kamera tayyor!";
+                                title.innerText = "⬅️ Boshingizni CHAPGA buring";
+                                updateDots(1);
+                                currentStep = 1; 
+                                centerCount = 0; // Counter ni qayta boshlash
+                                camBox.classList.add('active');
+                                
+                                // Tekshiruvni boshlash
+                                detectionInterval = setInterval(detectFace, 200);
+                            } else {
+                                console.error("❌ Video readyState:", video.readyState);
+                                showCameraError("Video tayyorlanmadi");
+                            }
+                        }, 300); // Desktop uchun 300ms kutish
                     }).catch(err => {
                         console.error("❌ Video play xatosi:", err);
                         showCameraError("Video o'ynatib bo'lmadi");
                     });
+                };
+                
+                // Video yuklanishini kuzatish
+                video.oncanplay = () => {
+                    console.log("✅ Video can play");
+                };
+                
+                video.oncanplaythrough = () => {
+                    console.log("✅ Video can play through");
                 };
                 
                 video.onerror = (err) => {
@@ -375,9 +428,21 @@
             }
         }
         
-        // Sahifa yopilganda kamerani to'xtatish
+        // Sahifa yopilganda kamerani to'xtatish va keyboard ni yopish
         window.addEventListener('beforeunload', () => {
             stopCamera();
+            // Keyboard ni yopish
+            if (typeof tg.MainButton !== 'undefined') {
+                tg.MainButton.hide();
+            }
+        });
+        
+        // Telegram Web App yopilganda
+        tg.onEvent('viewportChanged', () => {
+            // Viewport o'zgarganda keyboard ni yopish
+            if (typeof tg.MainButton !== 'undefined') {
+                tg.MainButton.hide();
+            }
         });
 
         // 3. AI TEKSHIRUVI
@@ -413,9 +478,22 @@
                             completeStep(2);
                         }
                     }
-                    else if (currentStep === 3) { // MARKAZ
-                        if (noseRatio > 0.45 && noseRatio < 0.55) {
-                            completeStep(3);
+                    else if (currentStep === 3) { // MARKAZ - TO'G'RIGA QARAB
+                        // Qattiqroq tekshirish: 0.48-0.52 orasida bo'lishi kerak
+                        if (noseRatio >= 0.48 && noseRatio <= 0.52) {
+                            centerCount++;
+                            statusTxt.innerText = `To'g'riga qarab... (${centerCount}/${REQUIRED_CENTER_COUNT})`;
+                            
+                            // 10 marta ketma-ket to'g'ri bo'lishi kerak
+                            if (centerCount >= REQUIRED_CENTER_COUNT) {
+                                completeStep(3);
+                            }
+                        } else {
+                            // Agar to'g'ri bo'lmasa, counter ni qayta boshlash
+                            if (centerCount > 0) {
+                                centerCount = 0;
+                                statusTxt.innerText = "To'g'riga qarab kuling";
+                            }
                         }
                     }
                 } else {
@@ -430,11 +508,14 @@
         function completeStep(step) {
             if (step === 1) {
                 currentStep = 2;
+                centerCount = 0; // Counter ni qayta boshlash
                 title.innerText = "➡️ Endi O'NGGA buring";
                 updateDots(2);
             } else if (step === 2) {
                 currentStep = 3;
+                centerCount = 0; // Counter ni qayta boshlash
                 title.innerText = "🙂 To'g'riga qarab kuling";
+                statusTxt.innerText = "To'g'riga qarab kuling";
                 updateDots(3);
             } else if (step === 3) {
                 currentStep = 4;
@@ -478,8 +559,8 @@
             // Telegram Web App uchun juda kichik rasm (max 4096 bayt)
             // Rasmni kichraytirish va sifatni pasaytirish
             const smallCanvas = document.createElement('canvas');
-            let size = 200; // 300 dan 200 ga kamaytirdik
-            let quality = 0.5; // 0.7 dan 0.5 ga pasaytirdik
+            let size = 150; // 200 dan 150 ga kamaytirdik - kichikroq boshlash
+            let quality = 0.4; // 0.5 dan 0.4 ga pasaytirdik
             smallCanvas.width = size; 
             smallCanvas.height = size;
             const sCtx = smallCanvas.getContext('2d');
@@ -495,11 +576,12 @@
             let base64Data = base64.split(',')[1];
             
             // Agar hali ham katta bo'lsa, yanada kichraytiramiz
-            const maxSize = 3500; // 4096 dan biroz kichik (JSON uchun joy qoldiramiz)
+            const maxSize = 3000; // 3500 dan 3000 ga kamaytirdik - xavfsizroq
             let attempts = 0;
-            while (base64Data.length > maxSize && attempts < 5) {
-                size = Math.max(150, size - 20);
-                quality = Math.max(0.3, quality - 0.1);
+            const maxAttempts = 8; // 5 dan 8 ga oshirdik
+            while (base64Data.length > maxSize && attempts < maxAttempts) {
+                size = Math.max(100, size - 15); // 150 dan 100 ga, 20 dan 15 ga
+                quality = Math.max(0.25, quality - 0.05); // 0.3 dan 0.25 ga, 0.1 dan 0.05 ga
                 smallCanvas.width = size;
                 smallCanvas.height = size;
                 sCtx.clearRect(0, 0, size, size);
@@ -507,7 +589,13 @@
                 base64 = smallCanvas.toDataURL('image/jpeg', quality);
                 base64Data = base64.split(',')[1];
                 attempts++;
+                statusTxt.innerText = `Rasm kichraytirilmoqda... (${attempts}/${maxAttempts})`;
                 console.log(`🔄 Rasm kichraytirilmoqda... (${base64Data.length} bytes, size: ${size}, quality: ${quality})`);
+            }
+            
+            // Agar hali ham katta bo'lsa, xatolik
+            if (base64Data.length > maxSize) {
+                console.error(`❌ Rasm hali ham katta: ${base64Data.length} bytes (max: ${maxSize})`);
             }
 
             // Ma'lumotlarni yuborish
@@ -529,10 +617,10 @@
                     maxSize: 4096
                 });
                 
-                // Ma'lumot hajmini tekshirish
-                if (dataSize > 4096) {
-                    console.error("❌ Ma'lumot juda katta:", dataSize, "bytes");
-                    statusTxt.innerText = "❌ Rasm juda katta. Qayta urinib ko'ring.";
+                // Ma'lumot hajmini tekshirish - qat'iy tekshirish
+                if (dataSize > 4000) { // 4096 dan 4000 ga kamaytirdik - xavfsizroq
+                    console.error("❌ Ma'lumot juda katta:", dataSize, "bytes (max: 4000)");
+                    statusTxt.innerText = `❌ Rasm juda katta (${Math.round(dataSize/1024)}KB). Qayta urinib ko'ring.`;
                     title.innerText = "❌ Xatolik";
                     title.style.color = "red";
                     
@@ -563,15 +651,27 @@
                 
                 statusTxt.innerText = "Yuborilmoqda...";
                 
-                try {
-                    // Telegram Web App sendData
-                    if (typeof tg.sendData === 'function') {
-                        tg.sendData(jsonData);
-                        console.log("✅ Ma'lumot yuborildi!");
-                        statusTxt.innerText = "✅ Yuborildi!";
-                    } else {
-                        throw new Error("sendData funksiyasi mavjud emas");
-                    }
+                    try {
+                        // Telegram Web App sendData
+                        if (typeof tg.sendData === 'function') {
+                            tg.sendData(jsonData);
+                            console.log("✅ Ma'lumot yuborildi!");
+                            statusTxt.innerText = "✅ Yuborildi!";
+                            
+                            // Ma'lumot yuborilgandan keyin Web App ni yopish va keyboard ni yopish
+                            setTimeout(() => {
+                                // Keyboard ni yopish
+                                if (typeof tg.MainButton !== 'undefined') {
+                                    tg.MainButton.hide();
+                                }
+                                // Web App ni yopish
+                                if (typeof tg.close === 'function') {
+                                    tg.close();
+                                }
+                            }, 1500);
+                        } else {
+                            throw new Error("sendData funksiyasi mavjud emas");
+                        }
                 } catch (e) {
                     console.error("❌ Yuborish xatosi:", e);
                     statusTxt.innerText = `❌ Xatolik: ${e.message || e}`;
