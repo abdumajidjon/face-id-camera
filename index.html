@@ -3,195 +3,244 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Face ID Final</title>
+    <title>AI Face ID</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
         body {
             margin: 0; padding: 0;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            background-color: #f5f5f5;
-            font-family: -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-            height: 100vh; overflow: hidden;
+            background-color: #f0f2f5;
+            font-family: sans-serif; height: 100vh; overflow: hidden;
         }
 
-        h2 { margin-bottom: 15px; color: #333; font-size: 18px; text-align: center; }
+        h3 { margin-bottom: 10px; color: #333; font-size: 16px; text-align: center; z-index: 10;}
 
-        /* --- KAMERA KORPUSI --- */
+        /* --- DUMALOQ KAMERA --- */
         .camera-container {
             position: relative;
             width: 280px; height: 280px;
             border-radius: 50%;
             overflow: hidden;
-            border: 5px solid #2ea6ff;
+            border: 5px solid #ccc; /* Odatiy rang */
             background: #000;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            z-index: 10;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            z-index: 5;
+            transition: border-color 0.3s;
         }
+
+        /* Holatlar uchun ranglar */
+        .camera-container.error { border-color: #ff3b30; } /* Qizil - Yuz yo'q */
+        .camera-container.success { border-color: #34c759; } /* Yashil - Tayyor */
+        .camera-container.warning { border-color: #ffcc00; } /* Sariq - 2 ta yuz */
 
         video {
+            width: 100%; height: 100%; object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        /* Yuzni chizish uchun kanvas (Yashirin) */
+        #overlay {
+            position: absolute; top: 0; left: 0;
             width: 100%; height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1); /* Oyna effekti */
+            z-index: 6; pointer-events: none;
         }
 
-        /* Yuz uchun OVAL ramka */
-        .face-guide {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 130px; height: 180px;
-            border: 2px dashed rgba(255, 255, 255, 0.8);
-            border-radius: 50%; /* Oval shakl */
-            box-shadow: 0 0 0 100px rgba(0, 0, 0, 0.4);
-            z-index: 20;
-            pointer-events: none;
-        }
-
-        /* --- STATUS VA TUGMA --- */
-        #status {
+        /* --- STATUS XABARI --- */
+        #status-msg {
             margin-top: 20px;
-            font-size: 14px;
-            color: #666;
-            min-height: 20px;
+            font-size: 14px; font-weight: bold;
+            color: #555; text-align: center;
+            padding: 5px 15px; border-radius: 20px;
+            background: rgba(255,255,255,0.8);
         }
 
+        /* --- TUGMA --- */
         #btn-capture {
             margin-top: 15px;
-            padding: 14px 50px;
-            font-size: 16px;
-            background-color: #ccc;
-            color: white;
-            border: none;
-            border-radius: 30px;
-            cursor: not-allowed;
-            font-weight: 600;
-            transition: 0.3s;
-            width: 80%; max-width: 300px;
+            padding: 14px 40px;
+            font-size: 16px; font-weight: bold;
+            color: white; border: none; border-radius: 30px;
+            background-color: #ccc; cursor: not-allowed;
+            transition: 0.3s; width: 80%; max-width: 300px;
         }
-
+        
         #btn-capture.active {
-            background-color: #2ea6ff;
-            cursor: pointer;
-            box-shadow: 0 5px 15px rgba(46, 166, 255, 0.4);
+            background-color: #007aff; cursor: pointer;
+            box-shadow: 0 5px 15px rgba(0, 122, 255, 0.4);
         }
 
-        #btn-capture:active { transform: scale(0.95); }
-
-        canvas { display: none; }
+        /* Debug */
+        #logs { position: absolute; bottom: 5px; font-size: 10px; color: #aaa; }
     </style>
 </head>
 <body>
 
-    <h2 id="title">Yuzingizni RAMKA ichiga joylang</h2>
+    <h3 id="title">AI Tizimi Yuklanmoqda...</h3>
 
-    <div class="camera-container">
-        <div class="face-guide"></div>
+    <div class="camera-container" id="cam-box">
         <video id="video" autoplay playsinline muted></video>
+        <canvas id="overlay"></canvas>
     </div>
 
-    <div id="status">Kamera va Lokatsiya yuklanmoqda...</div>
+    <div id="status-msg">Iltimos kuting...</div>
     <button id="btn-capture" disabled>Rasmga Olish</button>
-    <canvas id="canvas"></canvas>
+    <div id="logs">v3.0 AI</div>
 
     <script>
         const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
         const btn = document.getElementById('btn-capture');
-        const statusTxt = document.getElementById('status');
+        const statusTxt = document.getElementById('status-msg');
+        const titleTxt = document.getElementById('title');
+        const camBox = document.getElementById('cam-box');
         const tg = window.Telegram.WebApp;
 
         tg.expand();
-        
-        let userLocation = null;
-        let isCameraReady = false;
 
-        // 1. UNIVERSAL KAMERA (Desktop va Mobile uchun)
+        let isModelLoaded = false;
+        let isFaceValid = false;
+        let userLocation = null;
+
+        // --- 1. AI MODELLARINI YUKLASH ---
+        async function loadModels() {
+            try {
+                statusTxt.innerText = "🧠 AI Modellar yuklanmoqda...";
+                // Modellar GitHubdan olinadi (CORS muammosi bo'lmasligi uchun)
+                const modelUrl = 'https://justadudewhohacks.github.io/face-api.js/models';
+                
+                await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
+                // await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl); // Og'ir, shart emas
+                
+                isModelLoaded = true;
+                statusTxt.innerText = "📷 Kamera yoqilmoqda...";
+                startCamera();
+            } catch (err) {
+                alert("Model yuklashda xato: " + err);
+            }
+        }
+
+        // --- 2. KAMERANI YOQISH (Universal) ---
         async function startCamera() {
             try {
-                // Avval old kamerani so'raymiz (Mobile uchun)
                 let stream;
                 try {
+                    // Mobile
                     stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 } }, 
+                        video: { facingMode: "user", width: {ideal:640}, height: {ideal:640} }, 
                         audio: false 
                     });
                 } catch (e) {
-                    // Agar xato bersa (Desktop uchun), oddiy kamerani so'raymiz
-                    stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: true, 
-                        audio: false 
-                    });
+                    // Desktop
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 }
-
                 video.srcObject = stream;
-                
-                video.onloadedmetadata = () => {
-                    isCameraReady = true;
-                    statusTxt.innerText = "📍 Lokatsiya aniqlanmoqda...";
-                    getLocation(); // Kamera yongach, GPS so'raymiz
-                };
             } catch (err) {
-                statusTxt.innerText = "Kamera xatosi: " + err.name;
-                alert("Iltimos, kameraga ruxsat bering!");
+                statusTxt.innerText = "❌ Kameraga ruxsat bering!";
             }
         }
 
-        // 2. LOKATSIYA
+        // --- 3. YUZNI IZLASH (LOOP) ---
+        video.addEventListener('play', () => {
+            // Lokatsiya so'rash
+            getLocation();
+            
+            // Har 100ms da yuzni tekshirish
+            setInterval(async () => {
+                if (!isModelLoaded || !video.srcObject) return;
+
+                // TinyFaceDetector - eng yengil model
+                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
+
+                if (detections.length === 0) {
+                    // Yuz yo'q
+                    updateStatus("error", "Yuz topilmadi! Ramkaga qarang.");
+                    isFaceValid = false;
+                } else if (detections.length > 1) {
+                    // Ko'p odam
+                    updateStatus("warning", "Faqat bir kishi bo'ling!");
+                    isFaceValid = false;
+                } else {
+                    // 1 ta yuz - IDEAL
+                    // Yuz yaqinligini tekshirish (qutining o'lchami orqali)
+                    const box = detections[0].box;
+                    const videoWidth = video.videoWidth || 640;
+                    
+                    // Agar yuz juda kichkina bo'lsa (uzoqlashgan)
+                    if (box.width < videoWidth * 0.3) {
+                        updateStatus("warning", "Yaqinroq keling!");
+                        isFaceValid = false;
+                    } else {
+                        updateStatus("success", "✅ Ajoyib! Rasmga tushing.");
+                        isFaceValid = true;
+                    }
+                }
+                
+                toggleButton();
+            }, 200);
+        });
+
+        // Statusni o'zgartirish dizayni
+        function updateStatus(type, msg) {
+            camBox.className = "camera-container " + type;
+            statusTxt.innerText = msg;
+            
+            if (type === 'error') statusTxt.style.color = "red";
+            else if (type === 'warning') statusTxt.style.color = "orange";
+            else statusTxt.style.color = "green";
+        }
+
+        // Tugmani yoqish/o'chirish
+        function toggleButton() {
+            if (isFaceValid && userLocation) {
+                btn.disabled = false;
+                btn.classList.add('active');
+                titleTxt.innerText = "Tayyor";
+            } else {
+                btn.disabled = true;
+                btn.classList.remove('active');
+                if (!userLocation) titleTxt.innerText = "Lokatsiya kutilmoqda...";
+            }
+        }
+
+        // --- 4. LOKATSIYA ---
         function getLocation() {
-            if (!navigator.geolocation) {
-                statusTxt.innerText = "GPS qo'llab-quvvatlanmaydi";
-                return;
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => { userLocation = { lat: pos.coords.latitude, long: pos.coords.longitude }; },
+                    (err) => { statusTxt.innerText = "⚠️ GPS yoqing!"; }
+                );
             }
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    userLocation = { lat: pos.coords.latitude, long: pos.coords.longitude };
-                    statusTxt.innerText = "✅ Tayyor. Rasmga tushing.";
-                    statusTxt.style.color = "green";
-                    btn.disabled = false;
-                    btn.classList.add('active');
-                },
-                (err) => {
-                    statusTxt.innerText = "❌ GPS yoqing va qayta kiring!";
-                    statusTxt.style.color = "red";
-                },
-                { enableHighAccuracy: true, timeout: 10000 }
-            );
         }
 
-        // 3. OPTIMALLASHTIRILGAN YUBORISH
+        // --- 5. YUBORISH (Kichraytirilgan holda) ---
         btn.addEventListener('click', () => {
-            if (!isCameraReady || !userLocation) return;
+            if (!isFaceValid) return;
 
             btn.innerText = "Yuborilmoqda...";
             btn.disabled = true;
-            btn.style.backgroundColor = "#ff9500"; // Sariq rang (Jarayon)
 
+            // Rasmni olish uchun Canvas
+            const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            
-            // A) Kvadrat qirqib olish o'lchami
+
+            // ⚠️ SIR: Rasmni kichraytirish (Telegram uchun)
+            // 640x640 emas, 256x256 qilamiz. Bu "Check-in" uchun yetarli.
             const size = Math.min(video.videoWidth, video.videoHeight);
-            
-            // B) MAJBURIY KICHRAYTIRISH (Eng muhim joyi!)
-            // Biz rasmni 320x320 px ga majburlab kichraytiramiz.
-            // Bu ma'lumot hajmini 2MB dan 50KB ga tushiradi.
-            const finalSize = 320; 
+            const outputSize = 256; 
 
-            canvas.width = finalSize;
-            canvas.height = finalSize;
+            canvas.width = outputSize;
+            canvas.height = outputSize;
 
-            // Markazni hisoblash
+            // Markazdan qirqib olish
             const sx = (video.videoWidth - size) / 2;
             const sy = (video.videoHeight - size) / 2;
 
-            // Oyna effekti bilan chizish
-            ctx.translate(finalSize, 0);
+            ctx.translate(outputSize, 0);
             ctx.scale(-1, 1);
-            
-            // Katta videodan kichik canvasga "siqib" chizish
-            ctx.drawImage(video, sx, sy, size, size, 0, 0, finalSize, finalSize);
+            ctx.drawImage(video, sx, sy, size, size, 0, 0, outputSize, outputSize);
 
-            // C) Sifatni 80% qilib olish
-            const base64 = canvas.toDataURL('image/jpeg', 0.8);
+            // Sifat 0.6 (60%)
+            const base64 = canvas.toDataURL('image/jpeg', 0.6);
 
             const data = JSON.stringify({
                 image: base64,
@@ -202,8 +251,9 @@
             tg.sendData(data);
         });
 
-        // Ilovani ishga tushirish
-        startCamera();
+        // Ilovani boshlash
+        loadModels();
+
     </script>
 </body>
 </html>
