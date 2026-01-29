@@ -105,32 +105,146 @@
         let userLocation = null;
         let detectionInterval;
         let cameraStream = null;
+        let locationVerified = false;
 
-        // 1. ISHNI BOSHLASH
+        // Ofis lokatsiyasi (config.json dan)
+        const OFFICE_LOCATION = {
+            lat: 40.482212163958806,
+            long: 70.7676182251774,
+            allowedDistance: 500 // metr
+        };
+
+        // Masofani hisoblash funksiyasi (Haversine formula)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000; // Yer radiusi metrlarda
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c; // metr
+        }
+
+        // 1. ISHNI BOSHLASH - AVVAL LOKATSIYANI TEKSHIRISH
         async function init() {
             try {
-                // Lokatsiya
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(p => {
-                        userLocation = { lat: p.coords.latitude, long: p.coords.longitude };
-                        console.log("📍 Lokatsiya olingan:", userLocation);
-                    }, err => {
-                        console.error("❌ Lokatsiya xatosi:", err);
-                        // Lokatsiya bo'lmasa ham davom etamiz
-                        userLocation = null;
-                    });
-                }
+                title.innerText = "📍 Lokatsiya tekshirilmoqda...";
+                statusTxt.innerText = "Iltimos, lokatsiya ruxsatini bering";
+                debugTxt.innerText = "Lokatsiya so'ralmoqda...";
 
+                // AVVAL LOKATSIYANI OLISH VA TEKSHIRISH
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        async (position) => {
+                            userLocation = { 
+                                lat: position.coords.latitude, 
+                                long: position.coords.longitude 
+                            };
+                            console.log("📍 Lokatsiya olingan:", userLocation);
+                            
+                            // Lokatsiyani tekshirish
+                            const distance = calculateDistance(
+                                OFFICE_LOCATION.lat,
+                                OFFICE_LOCATION.long,
+                                userLocation.lat,
+                                userLocation.long
+                            );
+                            
+                            console.log(`📍 Masofa: ${Math.round(distance)}m (Ruxsat: ${OFFICE_LOCATION.allowedDistance}m)`);
+                            
+                            if (distance > OFFICE_LOCATION.allowedDistance) {
+                                // Ish hududida emas
+                                title.innerText = "❌ Bu hududda emasiz";
+                                title.style.color = "red";
+                                statusTxt.innerText = `Siz ofisdan ${Math.round(distance)}m uzoqdasiz.\nTalab: ${OFFICE_LOCATION.allowedDistance}m ichida bo'lish kerak.`;
+                                debugTxt.innerText = "Lokatsiya tekshiruvi muvaffaqiyatsiz";
+                                locationVerified = false;
+                                
+                                // Kamera yuklanishini to'xtatish
+                                return;
+                            }
+                            
+                            // Lokatsiya to'g'ri - davom etamiz
+                            locationVerified = true;
+                            debugTxt.innerText = `✅ Lokatsiya OK (${Math.round(distance)}m)`;
+                            
+                            // Endi AI modellar va kamerani yuklaymiz
+                            await loadModelsAndStartCamera();
+                        },
+                        (error) => {
+                            console.error("❌ Lokatsiya xatosi:", error);
+                            let errorMsg = "Lokatsiya olinmadi";
+                            
+                            if (error.code === error.PERMISSION_DENIED) {
+                                errorMsg = "Lokatsiya ruxsati rad etildi. Sozlamalarda ruxsat bering.";
+                            } else if (error.code === error.POSITION_UNAVAILABLE) {
+                                errorMsg = "Lokatsiya topilmadi.";
+                            } else if (error.code === error.TIMEOUT) {
+                                errorMsg = "Lokatsiya so'rovi vaqti tugadi.";
+                            }
+                            
+                            title.innerText = "❌ Lokatsiya xatosi";
+                            title.style.color = "red";
+                            statusTxt.innerText = errorMsg;
+                            debugTxt.innerText = "Lokatsiya olinmadi";
+                            locationVerified = false;
+                            
+                            // Qayta urinish tugmasi
+                            const retryBtn = document.createElement('button');
+                            retryBtn.innerText = "🔄 Qayta urinish";
+                            retryBtn.style.cssText = "margin-top: 15px; padding: 10px 20px; background: #2ea6ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 14px;";
+                            retryBtn.onclick = () => {
+                                retryBtn.remove();
+                                init();
+                            };
+                            
+                            const oldBtn = document.querySelector('#retry-location-btn');
+                            if (oldBtn) oldBtn.remove();
+                            retryBtn.id = 'retry-location-btn';
+                            document.body.appendChild(retryBtn);
+                        },
+                        {
+                            enableHighAccuracy: true,
+                            timeout: 10000,
+                            maximumAge: 0
+                        }
+                    );
+                } else {
+                    // Geolocation qo'llab-quvvatlanmaydi
+                    title.innerText = "❌ Xatolik";
+                    title.style.color = "red";
+                    statusTxt.innerText = "Brauzeringiz lokatsiyani qo'llab-quvvatlamaydi.";
+                    debugTxt.innerText = "Geolocation yo'q";
+                    locationVerified = false;
+                }
+            } catch (e) {
+                console.error("❌ Init xatosi:", e);
+                title.innerText = "❌ Xatolik";
+                title.style.color = "red";
+                statusTxt.innerText = "Tizim xatosi: " + e.message;
+            }
+        }
+
+        // AI MODELLAR VA KAMERANI YUKLASH
+        async function loadModelsAndStartCamera() {
+            try {
+                title.innerText = "AI Yuklanmoqda...";
+                statusTxt.innerText = "Kutish...";
+                
                 // AI Model (CDN)
                 debugTxt.innerText = "Modellar yuklanmoqda...";
                 await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model');
                 await faceapi.nets.faceLandmark68TinyNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model');
                 
                 debugTxt.innerText = "Modellar OK. Kamera...";
+                statusTxt.innerText = "Kamera yuklanmoqda...";
                 startCamera();
             } catch (e) {
-                console.error("❌ Init xatosi:", e);
-                alert("Xato: Modellar yuklanmadi. " + e);
+                console.error("❌ Models/Kamera xatosi:", e);
+                title.innerText = "❌ Xatolik";
+                title.style.color = "red";
+                statusTxt.innerText = "Modellar yoki kamera yuklanmadi: " + e.message;
             }
         }
 
