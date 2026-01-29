@@ -50,8 +50,20 @@
         .step-dot.done { background: #34c759; }
         .step-dot.current { background: #2ea6ff; transform: scale(1.2); }
 
-        #status-text { margin-top: 15px; color: #555; font-size: 14px; font-weight: 500;}
+        #status-text { margin-top: 15px; color: #555; font-size: 14px; font-weight: 500; text-align: center; max-width: 90%;}
         #debug-info { position: absolute; bottom: 5px; font-size: 10px; color: #ccc; }
+        
+        button {
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background: #1e8cd6 !important;
+            transform: scale(1.05);
+        }
+        button:active {
+            transform: scale(0.95);
+        }
         
         canvas { display: none; }
     </style>
@@ -84,10 +96,15 @@
         const tg = window.Telegram.WebApp;
 
         tg.expand();
+        
+        // Telegram Web App sozlamalari
+        tg.ready();
+        tg.enableClosingConfirmation();
 
         let currentStep = 0; // 0=Yuklash, 1=Chap, 2=O'ng, 3=Markaz
         let userLocation = null;
         let detectionInterval;
+        let cameraStream = null;
 
         // 1. ISHNI BOSHLASH
         async function init() {
@@ -118,28 +135,136 @@
         }
 
         // 2. KAMERA
-        async function startCamera() {
+        async function startCamera(retryCount = 0) {
+            const maxRetries = 3;
+            
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, 
-                    audio: false 
-                });
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    video.play();
-                    title.innerText = "⬅️ Boshingizni CHAPGA buring";
-                    updateDots(1);
-                    currentStep = 1; 
-                    camBox.classList.add('active');
-                    
-                    // Tekshiruvni boshlash
-                    detectionInterval = setInterval(detectFace, 200);
+                // Avval eski streamni to'xtatamiz (agar bo'lsa)
+                if (video.srcObject) {
+                    const tracks = video.srcObject.getTracks();
+                    tracks.forEach(track => track.stop());
+                    video.srcObject = null;
+                }
+                
+                // Kamera parametrlarini moslashtirish
+                let constraints = {
+                    video: {
+                        facingMode: "user",
+                        // Ideal o'lchamlar o'rniga moslashuvchan parametrlar
+                        width: { min: 320, ideal: 640, max: 1280 },
+                        height: { min: 240, ideal: 480, max: 720 }
+                    },
+                    audio: false
                 };
+                
+                // Agar ideal o'lchamlar ishlamasa, oddiy parametrlar bilan urinib ko'ramiz
+                if (retryCount > 0) {
+                    constraints.video = { facingMode: "user" };
+                }
+                
+                debugTxt.innerText = `Kamera ochilmoqda... (${retryCount + 1}/${maxRetries + 1})`;
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                cameraStream = stream; // Streamni saqlash
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    video.play().then(() => {
+                        debugTxt.innerText = "Kamera tayyor!";
+                        title.innerText = "⬅️ Boshingizni CHAPGA buring";
+                        updateDots(1);
+                        currentStep = 1; 
+                        camBox.classList.add('active');
+                        
+                        // Tekshiruvni boshlash
+                        detectionInterval = setInterval(detectFace, 200);
+                    }).catch(err => {
+                        console.error("❌ Video play xatosi:", err);
+                        showCameraError("Video o'ynatib bo'lmadi");
+                    });
+                };
+                
+                video.onerror = (err) => {
+                    console.error("❌ Video element xatosi:", err);
+                    showCameraError("Video xatosi");
+                };
+                
             } catch (e) {
                 console.error("❌ Kamera xatosi:", e);
-                title.innerText = "Kameraga ruxsat bering!";
+                
+                let errorMessage = "Kamera xatosi";
+                
+                if (e.name === "NotReadableError") {
+                    errorMessage = "Kamera boshqa dastur tomonidan ishlatilmoqda. Barcha dasturlarni yoping va qayta urinib ko'ring.";
+                } else if (e.name === "NotFoundError") {
+                    errorMessage = "Kamera topilmadi. Iltimos, kamerani ulang.";
+                } else if (e.name === "NotAllowedError" || e.name === "PermissionDeniedError") {
+                    errorMessage = "Kamera ruxsati rad etildi. Sozlamalarda ruxsat bering.";
+                } else if (e.name === "OverconstrainedError") {
+                    errorMessage = "Kamera parametrlari mos kelmayapti. Qayta urinib ko'ramiz...";
+                } else {
+                    errorMessage = `Kamera xatosi: ${e.name || e.message}`;
+                }
+                
+                if (retryCount < maxRetries && (e.name === "OverconstrainedError" || e.name === "NotReadableError")) {
+                    // Qayta urinish
+                    debugTxt.innerText = `Qayta urinilmoqda... (${retryCount + 1}/${maxRetries})`;
+                    setTimeout(() => {
+                        startCamera(retryCount + 1);
+                    }, 1000);
+                } else {
+                    showCameraError(errorMessage);
+                }
             }
         }
+        
+        function showCameraError(message) {
+            title.innerText = "❌ Xatolik";
+            title.style.color = "red";
+            statusTxt.innerText = message;
+            debugTxt.innerText = "Kamera ishlamayapti";
+            camBox.classList.remove('active');
+            
+            // Eski tugmani olib tashlash
+            const oldBtn = document.querySelector('#retry-camera-btn');
+            if (oldBtn) oldBtn.remove();
+            
+            // Qayta urinish tugmasi
+            const retryBtn = document.createElement('button');
+            retryBtn.id = 'retry-camera-btn';
+            retryBtn.innerText = "🔄 Qayta urinish";
+            retryBtn.style.cssText = "margin-top: 15px; padding: 10px 20px; background: #2ea6ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 14px;";
+            retryBtn.onclick = () => {
+                retryBtn.remove();
+                title.style.color = "#333";
+                statusTxt.innerText = "Kutish...";
+                debugTxt.innerText = "Qayta urinilmoqda...";
+                startCamera(0);
+            };
+            
+            document.body.appendChild(retryBtn);
+        }
+        
+        // Kamera streamini to'xtatish funksiyasi
+        function stopCamera() {
+            if (cameraStream) {
+                const tracks = cameraStream.getTracks();
+                tracks.forEach(track => track.stop());
+                cameraStream = null;
+            }
+            if (video.srcObject) {
+                video.srcObject = null;
+            }
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+                detectionInterval = null;
+            }
+        }
+        
+        // Sahifa yopilganda kamerani to'xtatish
+        window.addEventListener('beforeunload', () => {
+            stopCamera();
+        });
 
         // 3. AI TEKSHIRUVI
         async function detectFace() {
