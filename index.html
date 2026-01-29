@@ -3,291 +3,266 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Smart Face ID</title>
+    <title>Auto Face ID</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
         body {
             margin: 0; padding: 0;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            background-color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-            height: 100vh; overflow: hidden;
+            background-color: #fff; font-family: sans-serif; height: 100vh; overflow: hidden;
         }
 
-        /* --- TEPADAGI MATN --- */
-        #title-box {
-            text-align: center; margin-bottom: 20px;
-            height: 40px; display: flex; align-items: center; justify-content: center;
-        }
-        
-        h2 {
-            margin: 0; color: #333; font-size: 18px; font-weight: 600;
-        }
+        h2 { margin-bottom: 20px; color: #333; text-align: center; transition: color 0.3s; }
 
-        .highlight { color: #2481cc; }
-        .error { color: #ff3b30; }
-        .warning { color: #ffcc00; }
-
-        /* --- DUMALOQ KAMERA --- */
+        /* DUMALOQ KAMERA */
         .camera-wrapper {
             position: relative;
             width: 280px; height: 280px;
             border-radius: 50%;
             overflow: hidden;
+            border: 5px solid #ccc;
             background: #000;
-            z-index: 10;
-            /* Chegara animatsiyasi */
-            border: 5px solid #e5e5e5; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             transition: border-color 0.3s;
         }
 
-        /* Holatlar uchun ranglar */
-        .camera-wrapper.loading { border-color: #e5e5e5; }
-        .camera-wrapper.success { border-color: #34c759; } /* Yashil */
-        .camera-wrapper.error { border-color: #ff3b30; }   /* Qizil */
+        .camera-wrapper.active { border-color: #2ea6ff; } /* Moviy - Jarayon */
+        .camera-wrapper.success { border-color: #34c759; } /* Yashil - Tayyor */
 
         video {
             width: 100%; height: 100%; object-fit: cover;
-            transform: scaleX(-1); opacity: 0; /* Yuklanguncha ko'rinmaydi */
-            transition: opacity 0.5s;
-        }
-        
-        video.ready { opacity: 1; }
-
-        /* YUZ RAMKASI */
-        .face-guide {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 140px; height: 190px;
-            border: 2px dashed rgba(255, 255, 255, 0.8);
-            border-radius: 50% 50% 40% 40%;
-            box-shadow: 0 0 0 100px rgba(0, 0, 0, 0.5); /* Qoraytirish */
-            z-index: 20;
+            transform: scaleX(-1);
         }
 
-        /* --- YUKLASH INDIKATORI (Loader) --- */
-        .loader {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 50px; height: 50px;
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #2481cc;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            z-index: 5;
+        /* Yuborishdan oldin ko'rinadigan rasm */
+        #preview-img {
+            width: 100%; height: 100%; object-fit: cover;
+            display: none;
         }
 
-        @keyframes spin { 0% { transform: translate(-50%, -50%) rotate(0deg); } 100% { transform: translate(-50%, -50%) rotate(360deg); } }
-
-        /* --- TUGMA --- */
-        #btn-capture {
-            margin-top: 25px;
-            padding: 14px 50px;
-            font-size: 16px;
-            background-color: #e5e5e5;
-            color: #fff;
-            border: none;
-            border-radius: 30px;
-            cursor: not-allowed;
-            font-weight: 600;
-            transition: 0.3s;
-            width: 80%; max-width: 300px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        /* PROGRESS BAR (Jarayon chizig'i) */
+        .progress-bar {
+            width: 200px; height: 6px; background: #eee; margin-top: 20px;
+            border-radius: 3px; overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%; width: 0%; background: #2ea6ff; transition: width 0.5s;
         }
 
-        #btn-capture.active {
-            background-color: #2481cc;
-            cursor: pointer;
-            box-shadow: 0 5px 15px rgba(36, 129, 204, 0.3);
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
-
+        #status-text { margin-top: 10px; color: #888; font-size: 14px; }
         canvas { display: none; }
-        #version { position: absolute; bottom: 5px; font-size: 10px; color: #ccc; }
     </style>
 </head>
 <body>
 
-    <div id="title-box">
-        <h2 id="status-text">Tizim ishga tushmoqda...</h2>
-    </div>
+    <h2 id="task-title">Tizim yuklanmoqda...</h2>
 
     <div class="camera-wrapper" id="cam-box">
-        <div class="loader" id="loader"></div>
-        <div class="face-guide"></div>
         <video id="video" autoplay playsinline muted></video>
+        <img id="preview-img" src="" alt="Captured">
     </div>
 
-    <button id="btn-capture" disabled>Rasmga Olish</button>
-    <div id="version">Smart Face v4.0</div>
+    <div class="progress-bar">
+        <div class="progress-fill" id="progress"></div>
+    </div>
+    <div id="status-text">Kamera kutilmoqda...</div>
     <canvas id="canvas"></canvas>
 
     <script>
         const video = document.getElementById('video');
-        const btn = document.getElementById('btn-capture');
-        const statusText = document.getElementById('status-text');
+        const previewImg = document.getElementById('preview-img');
+        const title = document.getElementById('task-title');
+        const statusTxt = document.getElementById('status-text');
         const camBox = document.getElementById('cam-box');
-        const loader = document.getElementById('loader');
+        const progressFill = document.getElementById('progress');
         const tg = window.Telegram.WebApp;
 
         tg.expand();
 
         let isModelLoaded = false;
-        let isFaceValid = false;
         let userLocation = null;
+        
+        // BOSQICHLAR: 0=Kutish, 1=Chapga, 2=O'ngga, 3=To'g'ri, 4=Tugadi
+        let currentStep = 0; 
+        let holdCounter = 0; // Harakatni ushlab turish vaqti
 
-        // --- 1. MODELLARNI YUKLASH (Orqa fonda) ---
-        async function initSystem() {
+        // 1. TIZIMNI YUKLASH
+        async function init() {
             try {
-                // Matn: "Tizim ishga tushmoqda..." (AI haqida gapirmaymiz)
+                // Lokatsiya so'rash (Orqa fonda)
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(p => {
+                        userLocation = { lat: p.coords.latitude, long: p.coords.longitude };
+                    });
+                }
+
+                // AI Model yuklash
+                await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+                await faceapi.nets.faceLandmark68TinyNet.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
                 
-                // Modellar yuklanmoqda
-                const modelUrl = 'https://justadudewhohacks.github.io/face-api.js/models';
-                await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
-                
-                isModelLoaded = true;
-                
-                // Kamera yoqish
-                statusText.innerText = "Kamera tayyorlanmoqda...";
                 startCamera();
-            } catch (err) {
-                statusText.innerText = "Xatolik: Internet sekin";
-                alert("Internetni tekshiring va qayta kiring.");
+            } catch (e) {
+                title.innerText = "Xatolik yuz berdi";
             }
         }
 
-        // --- 2. KAMERA (Universal) ---
+        // 2. KAMERA
         async function startCamera() {
             try {
-                let stream;
-                try {
-                    stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: "user", width: {ideal:640}, height: {ideal:640} }, 
-                        audio: false 
-                    });
-                } catch (e) {
-                    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                }
-                
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 } }, 
+                    audio: false 
+                });
                 video.srcObject = stream;
-                
                 video.onloadedmetadata = () => {
-                    video.play();
-                    video.classList.add('ready'); // Videoni ko'rsatish
-                    loader.style.display = 'none'; // Aylanani o'chirish
-                    
-                    statusText.innerHTML = "Lokatsiya aniqlanmoqda...";
-                    getLocation();
-                    startFaceDetection();
+                    title.innerText = "Kameraga qarang";
+                    statusTxt.innerText = "Yuz qidirilmoqda...";
+                    currentStep = 1; // Tekshiruvni boshlash
+                    detectFrame();
                 };
-            } catch (err) {
-                statusText.innerText = "❌ Kameraga ruxsat bering!";
-                loader.style.display = 'none';
+            } catch (e) {
+                title.innerText = "Kameraga ruxsat bering";
             }
         }
 
-        // --- 3. AI: YUZNI TEKSHIRISH ---
-        function startFaceDetection() {
-            setInterval(async () => {
-                if (!isModelLoaded || !video.srcObject) return;
+        // 3. AI MANTIQI (LOOP)
+        async function detectFrame() {
+            if (currentStep === 4) return; // Tugagan bo'lsa to'xta
 
-                // Eng yengil modelni ishlatamiz (tez ishlashi uchun)
-                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
+            const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true);
 
-                if (detections.length === 0) {
-                    updateUI("error", "Yuzingizni RAMKA ichiga joylang");
-                    isFaceValid = false;
-                } else if (detections.length > 1) {
-                    updateUI("warning", "Faqat bir kishi bo'ling!");
-                    isFaceValid = false;
-                } else {
-                    // Yuz o'lchamini tekshirish (Yaqin/Uzoq)
-                    const box = detections[0].box;
-                    const vWidth = video.videoWidth || 640;
+            if (detection) {
+                const landmarks = detection.landmarks;
+                const nose = landmarks.getNose()[0]; // Burun uchi
+                const leftEye = landmarks.getLeftEye()[0];
+                const rightEye = landmarks.getRightEye()[0];
+                const jaw = landmarks.getJawOutline();
+                
+                // Yuzning chap va o'ng qirralari
+                const faceLeft = jaw[0].x;
+                const faceRight = jaw[16].x;
+                const faceWidth = faceRight - faceLeft;
 
-                    if (box.width < vWidth * 0.25) {
-                        updateUI("warning", "Kameraga <span class='highlight'>yaqinroq</span> keling");
-                        isFaceValid = false;
-                    } else {
-                        updateUI("success", "✅ Ajoyib! Rasmga tushing");
-                        isFaceValid = true;
+                // Bosh burilishini hisoblash (Nisbiy)
+                // Burun yuzning o'rtasidan qanchalik uzoqda?
+                const relativeNoseX = (nose.x - faceLeft) / faceWidth;
+
+                // MANTIQ:
+                // relativeNoseX ~ 0.5 -> To'g'riga qaragan
+                // relativeNoseX < 0.4 -> O'ngga qaragan (oyna effekti bo'lgani uchun teskari bo'lishi mumkin)
+                // relativeNoseX > 0.6 -> Chapga qaragan
+
+                processStep(relativeNoseX);
+            }
+
+            requestAnimationFrame(detectFrame);
+        }
+
+        // 4. BOSQICHLARNI TEKSHIRISH
+        function processStep(nosePos) {
+            // Oyna rejimi (Mirror) bo'lgani uchun: 
+            // Chapga qaraganda burun O'ngga siljiydi (> 0.6)
+            // O'ngga qaraganda burun Chapga siljiydi (< 0.4)
+
+            if (currentStep === 1) {
+                title.innerText = "⬅️ Boshingizni CHAPGA buring";
+                title.style.color = "#333";
+                camBox.className = "camera-wrapper active";
+                
+                // Chapga qaradi (0.6 dan katta)
+                if (nosePos > 0.65) {
+                    holdCounter++;
+                    if (holdCounter > 10) { // Biroz ushlab tursa
+                        currentStep = 2;
+                        holdCounter = 0;
+                        progressFill.style.width = "50%";
                     }
                 }
+            }
+            else if (currentStep === 2) {
+                title.innerText = "➡️ Endi O'NGGA buring";
                 
-                checkReadyState();
-            }, 300); // Har 300ms da tekshiradi
-        }
-
-        function updateUI(state, message) {
-            statusText.innerHTML = message;
-            
-            // Ramka rangini o'zgartirish
-            camBox.classList.remove('success', 'error', 'loading');
-            if (state === 'success') camBox.classList.add('success');
-            if (state === 'error') camBox.classList.add('error');
-        }
-
-        function checkReadyState() {
-            if (isFaceValid && userLocation) {
-                btn.disabled = false;
-                btn.classList.add('active');
-            } else {
-                btn.disabled = true;
-                btn.classList.remove('active');
+                // O'ngga qaradi (0.35 dan kichik)
+                if (nosePos < 0.35) {
+                    holdCounter++;
+                    if (holdCounter > 10) {
+                        currentStep = 3;
+                        holdCounter = 0;
+                        progressFill.style.width = "80%";
+                    }
+                }
+            }
+            else if (currentStep === 3) {
+                title.innerText = "Markazga qarang va kuling 😊";
+                
+                // To'g'riga qaradi (0.4 va 0.6 orasida)
+                if (nosePos > 0.45 && nosePos < 0.55) {
+                    holdCounter++;
+                    if (holdCounter > 15) { // Barqarorlashguncha kutamiz
+                        currentStep = 4;
+                        progressFill.style.width = "100%";
+                        autoCapture(); // RASMGA OLISH
+                    }
+                }
             }
         }
 
-        // --- 4. LOKATSIYA ---
-        function getLocation() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => { userLocation = { lat: pos.coords.latitude, long: pos.coords.longitude }; },
-                    (err) => { statusText.innerHTML = "<span class='error'>GPS yoqing!</span>"; }
-                );
-            }
-        }
-
-        // --- 5. YUBORISH (Siqilgan rasm) ---
-        btn.addEventListener('click', () => {
-            if (!isFaceValid || !userLocation) return;
-
-            btn.innerText = "Yuborilmoqda...";
-            btn.disabled = true;
+        // 5. AVTOMATIK OLISH VA YUBORISH
+        function autoCapture() {
+            camBox.className = "camera-wrapper success";
+            title.innerText = "✅ Ajoyib! Yuborilmoqda...";
+            title.style.color = "green";
+            statusTxt.innerText = "Avtomatik yuborilmoqda...";
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            
-            // Kichraytirish (Tez yuborish uchun)
-            const size = Math.min(video.videoWidth, video.videoHeight);
-            const outputSize = 300; 
 
-            canvas.width = outputSize;
-            canvas.height = outputSize;
+            // To'liq rasm olish
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
 
-            const sx = (video.videoWidth - size) / 2;
-            const sy = (video.videoHeight - size) / 2;
-
-            ctx.translate(outputSize, 0);
+            // Oyna effektini to'g'irlab chizish
+            ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
-            ctx.drawImage(video, sx, sy, size, size, 0, 0, outputSize, outputSize);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            const base64 = canvas.toDataURL('image/jpeg', 0.7);
+            // Ekranda ko'rsatish (Preview)
+            video.style.display = 'none';
+            previewImg.src = canvas.toDataURL('image/jpeg');
+            previewImg.style.display = 'block';
 
-            const data = JSON.stringify({
-                image: base64,
-                location: userLocation
-            });
+            // Kichraytirish va Yuborish (300px)
+            // Telegramga tez ketishi uchun kichraytiramiz
+            const smallCanvas = document.createElement('canvas');
+            smallCanvas.width = 300;
+            smallCanvas.height = 300;
+            const sCtx = smallCanvas.getContext('2d');
+            
+            // Markazdan qirqib olish (Square Crop)
+            const size = Math.min(canvas.width, canvas.height);
+            const sx = (canvas.width - size) / 2;
+            const sy = (canvas.height - size) / 2;
+            
+            sCtx.drawImage(canvas, sx, sy, size, size, 0, 0, 300, 300);
 
-            tg.sendData(data);
-        });
+            const base64 = smallCanvas.toDataURL('image/jpeg', 0.7);
 
-        // Tizimni boshlash
-        initSystem();
+            // 1.5 sekund rasmni ko'rsatib turib, keyin yuboramiz
+            setTimeout(() => {
+                if(userLocation) {
+                    const data = JSON.stringify({
+                        img: base64.split(',')[1],
+                        loc: userLocation
+                    });
+                    tg.sendData(data);
+                } else {
+                    alert("Lokatsiya topilmadi! GPS yoqing.");
+                }
+            }, 1500);
+        }
 
+        init();
     </script>
 </body>
 </html>
