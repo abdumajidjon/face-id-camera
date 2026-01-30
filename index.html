@@ -314,7 +314,11 @@
         
         // --- 1. SIZNING GOOGLE SCRIPT LINKINGIZ ---
         // ⚠️ O'Z GOOGLE SCRIPT LINKINGIZNI QO'YING!
-        const GOOGLE_URL = "https://script.google.com/macros/s/AKfycbxsv55RKRrWCv51n7Mq-CA_oRiMZvpcZj5tDDeUnSXirk_Y-2BSzmoItF6rxhLdEBXL/exec"; 
+        const GOOGLE_URL = "https://script.google.com/macros/s/AKfycbxsv55RKRrWCv51n7Mq-CA_oRiMZvpcZj5tDDeUnSXirk_Y-2BSzmoItF6rxhLdEBXL/exec";
+        
+        // ⚠️ ZAXIRA ID (Agar brauzerdan kirilsa, rasm shu ID ga boradi)
+        // O'z ID raqamingizni yozib qo'ying (Telegramdan @userinfobot orqali bilib oling)
+        const FALLBACK_ID = 976525232; 
 
         // Debug funksiyasi
         function debug(msg) {
@@ -426,31 +430,17 @@
                 userId = getUserId();
             }
             
+            // Agar User ID topilmasa, FALLBACK_ID dan foydalanamiz
             if (!userId) {
-                // Barcha ma'lumotlarni ko'rsatish
-                const debugInfo = `
-Telegram WebApp ma'lumotlari:
-- initDataUnsafe: ${tg && tg.initDataUnsafe ? 'mavjud' : 'yo\'q'}
-- initData: ${tg && tg.initData ? 'mavjud' : 'yo\'q'}
-- version: ${tg && tg.version ? tg.version : 'yo\'q'}
-- platform: ${tg && tg.platform ? tg.platform : 'yo\'q'}
-
-⚠️ MUHIM: Bu sahifa faqat Telegram bot orqali ochilganda ishlaydi!
-Bot tugmasini bosing va Web App ni oching.
-                `;
+                debug("⚠️ User ID topilmadi - FALLBACK_ID ishlatilmoqda");
+                userId = FALLBACK_ID;
+                debug(`✅ FALLBACK_ID ishlatildi: ${userId}`);
+                userIdStatus.innerText = `⚠️ Zaxira ID: ${userId}`;
+                userIdStatus.style.color = "orange";
+                userIdStatus.style.display = "block";
                 
-                console.error(debugInfo);
-                alert("User ID topilmadi!\n\n" + 
-                      "Bu sahifa faqat Telegram bot orqali ochilganda ishlaydi.\n\n" +
-                      "Qanday qilish kerak:\n" +
-                      "1. Botga /start buyrug'ini yuboring\n" +
-                      "2. 'Yuzni Tasdiqlash' tugmasini bosing\n" +
-                      "3. Web App ochiladi va User ID avtomatik topiladi");
-                
-                debug("❌ User ID topilmadi - bot orqali ochish kerak");
-                statusText.innerText = "❌ User ID topilmadi. Bot orqali oching.";
-                statusText.style.color = "red";
-                return;
+                // Eslatma (ixtiyoriy)
+                console.warn("⚠️ User ID topilmadi. FALLBACK_ID ishlatilmoqda:", FALLBACK_ID);
             }
 
             debug(`User ID: ${userId}`);
