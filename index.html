@@ -129,6 +129,31 @@
         if (tg) {
             tg.expand();
             tg.ready();
+            
+            // Event listener - initDataUnsafe o'zgarganda
+            tg.onEvent('viewportChanged', () => {
+                console.log("🔹 Viewport o'zgardi - User ID ni qayta tekshiramiz");
+                if (!userId) {
+                    userId = getUserId();
+                    if (userId) {
+                        debug(`✅ User ID (viewportChanged): ${userId}`);
+                        userIdStatus.innerText = `User ID: ${userId}`;
+                        userIdStatus.style.color = "green";
+                        userIdStatus.style.display = "block";
+                        if (!userLocation) {
+                            statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                            getLocation();
+                        }
+                    }
+                }
+            });
+            
+            // MainButton event
+            if (tg.MainButton) {
+                tg.MainButton.onClick(() => {
+                    console.log("MainButton clicked");
+                });
+            }
         }
 
         let userLocation = null;
@@ -142,40 +167,79 @@
             }
             
             // Debug: barcha ma'lumotlarni ko'rsatish
-            console.log("🔍 Telegram WebApp tekshiruvi:");
-            console.log("  - tg:", tg);
+            console.log("🔍 Telegram WebApp TO'LIQ TEKSHIRUV:");
+            console.log("  - tg mavjudmi:", !!tg);
             console.log("  - tg.initDataUnsafe:", tg.initDataUnsafe);
-            console.log("  - tg.initData:", tg.initData ? "mavjud (" + tg.initData.length + " chars)" : "yo'q");
+            console.log("  - tg.initData:", tg.initData ? `mavjud (${tg.initData.length} chars)` : "yo'q");
             console.log("  - tg.version:", tg.version);
             console.log("  - tg.platform:", tg.platform);
+            console.log("  - tg.isExpanded:", tg.isExpanded);
+            console.log("  - tg.readyState:", tg.readyState);
+            
+            // Barcha propertylarni ko'rsatish
+            console.log("  - tg barcha keys:", Object.keys(tg));
             
             // Usul 1: initDataUnsafe dan (eng ishonchli)
             if (tg.initDataUnsafe) {
                 console.log("  - initDataUnsafe keys:", Object.keys(tg.initDataUnsafe));
+                console.log("  - initDataUnsafe full:", JSON.stringify(tg.initDataUnsafe));
                 
+                // To'g'ridan-to'g'ri user tekshirish
                 if (tg.initDataUnsafe.user) {
-                    console.log("  - user object:", tg.initDataUnsafe.user);
+                    console.log("  - user object:", JSON.stringify(tg.initDataUnsafe.user));
                     if (tg.initDataUnsafe.user.id) {
                         userId = tg.initDataUnsafe.user.id;
-                        debug(`✅ User ID (initDataUnsafe): ${userId}`);
+                        debug(`✅ User ID (initDataUnsafe.user.id): ${userId}`);
                         return userId;
+                    } else {
+                        console.log("  - user.id mavjud emas");
                     }
+                } else {
+                    console.log("  - initDataUnsafe.user mavjud emas");
                 }
+                
+                // Boshqa variantlar
+                if (tg.initDataUnsafe.query_id) {
+                    console.log("  - query_id mavjud:", tg.initDataUnsafe.query_id);
+                }
+                if (tg.initDataUnsafe.auth_date) {
+                    console.log("  - auth_date mavjud:", tg.initDataUnsafe.auth_date);
+                }
+            } else {
+                console.log("  - initDataUnsafe mavjud emas");
             }
             
             // Usul 2: initData ni parse qilish
             if (tg.initData) {
                 try {
                     console.log("  - Parsing initData...");
+                    console.log("  - initData content:", tg.initData.substring(0, 200));
+                    
+                    // URLSearchParams orqali parse qilish
                     const initData = new URLSearchParams(tg.initData);
                     const userStr = initData.get('user');
+                    
                     if (userStr) {
+                        console.log("  - user string found:", userStr.substring(0, 100));
                         const user = JSON.parse(decodeURIComponent(userStr));
                         console.log("  - Parsed user:", user);
-                        if (user.id) {
+                        if (user && user.id) {
                             userId = user.id;
                             debug(`✅ User ID (initData parse): ${userId}`);
                             return userId;
+                        }
+                    } else {
+                        console.log("  - 'user' key topilmadi initData da");
+                        // Boshqa usul: to'g'ridan-to'g'ri JSON parse qilish
+                        try {
+                            const data = JSON.parse(decodeURIComponent(tg.initData));
+                            if (data.user && data.user.id) {
+                                userId = data.user.id;
+                                debug(`✅ User ID (initData JSON): ${userId}`);
+                                return userId;
+                            }
+                        } catch (e2) {
+                            console.log("  - JSON parse ham ishlamadi");
                         }
                     }
                 } catch (e) {
@@ -205,17 +269,30 @@
             return null;
         }
         
-        // Dastlabki yuklash - biroz kutib keyin
-        setTimeout(() => {
+        // Dastlabki yuklash - bir necha marta urinib ko'ramiz
+        let attempts = 0;
+        const maxAttempts = 5;
+        
+        function tryGetUserId() {
+            attempts++;
+            console.log(`🔄 User ID olish urinishi ${attempts}/${maxAttempts}`);
+            
             userId = getUserId();
+            
             if (userId) {
                 debug(`✅ User ID tayyor: ${userId}`);
                 userIdStatus.innerText = `User ID: ${userId}`;
                 userIdStatus.style.color = "green";
                 userIdStatus.style.display = "block";
                 statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                getLocation(); // Lokatsiyani olishni boshlash
+            } else if (attempts < maxAttempts) {
+                // Qayta urinish
+                debug(`⚠️ User ID topilmadi (${attempts}/${maxAttempts}) - qayta urinilmoqda...`);
+                setTimeout(tryGetUserId, 500); // 500ms kutib qayta urinish
             } else {
-                debug("⚠️ User ID topilmadi - bot orqali ochish kerak");
+                // Barcha urinishlar tugadi
+                debug("❌ User ID topilmadi - barcha urinishlar tugadi");
                 userIdStatus.innerText = "❌ User ID topilmadi - Bot orqali oching!";
                 userIdStatus.style.color = "red";
                 userIdStatus.style.display = "block";
@@ -223,8 +300,17 @@
                 statusText.style.color = "orange";
                 title.innerText = "⚠️ Bot orqali oching";
                 title.style.color = "orange";
+                
+                // Console da barcha ma'lumotlarni ko'rsatish
+                console.error("❌ User ID topilmadi. Barcha ma'lumotlar:");
+                console.error("  - tg:", tg);
+                console.error("  - tg.initDataUnsafe:", tg ? tg.initDataUnsafe : "tg yo'q");
+                console.error("  - tg.initData:", tg && tg.initData ? tg.initData.substring(0, 200) : "yo'q");
             }
-        }, 500); // 500ms kutish - WebApp to'liq yuklanishi uchun
+        }
+        
+        // Birinchi urinish - 500ms kutib
+        setTimeout(tryGetUserId, 500);
         
         // --- 1. SIZNING GOOGLE SCRIPT LINKINGIZ ---
         // ⚠️ O'Z GOOGLE SCRIPT LINKINGIZNI QO'YING!
@@ -258,9 +344,29 @@
                 video.onloadedmetadata = () => {
                     video.play();
                     camBox.classList.add('ready');
-                    statusText.innerText = "Lokatsiya aniqlanmoqda...";
-                    debug("Kamera tayyor, lokatsiya so'ralmoqda...");
-                    getLocation();
+                    debug("Kamera tayyor");
+                    
+                    // User ID ni tekshirish va keyin lokatsiyani olish
+                    if (!userId) {
+                        userId = getUserId();
+                    }
+                    
+                    if (userId) {
+                        statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                        debug("Kamera tayyor, lokatsiya so'ralmoqda...");
+                        getLocation();
+                    } else {
+                        statusText.innerText = "User ID kutilmoqda...";
+                        debug("User ID kutilmoqda...");
+                        // User ID ni qayta urinib ko'ramiz
+                        setTimeout(() => {
+                            userId = getUserId();
+                            if (userId) {
+                                statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                                getLocation();
+                            }
+                        }, 1000);
+                    }
                 };
             } catch (err) {
                 alert("Kameraga ruxsat bering! " + err);
