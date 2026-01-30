@@ -3,699 +3,242 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Active Face ID</title>
+    <title>Face ID HD</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
         body {
             margin: 0; padding: 0;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            background-color: #fff; font-family: sans-serif; height: 100vh; overflow: hidden;
+            background-color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh; overflow: hidden;
         }
 
-        h2 { margin-bottom: 15px; color: #333; text-align: center; font-size: 20px; font-weight: bold; }
+        h2 {
+            margin: 0 0 20px 0; color: #333; 
+            font-size: 18px; font-weight: 600; text-align: center;
+        }
 
-        /* KAMERA KORPUSI */
+        /* --- DUMALOQ KAMERA --- */
         .camera-wrapper {
             position: relative;
             width: 280px; height: 280px;
             border-radius: 50%;
             overflow: hidden;
-            border: 5px solid #ccc;
             background: #000;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            transition: border-color 0.3s;
             z-index: 10;
+            border: 5px solid #e5e5e5; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            transition: border-color 0.3s;
         }
 
-        .camera-wrapper.active { border-color: #2ea6ff; }
-        .camera-wrapper.success { border-color: #34c759; }
-        
-        /* Desktop uchun kamera yuklanayotganda ko'rsatish */
-        .camera-wrapper.loading {
-            background: #ffd700 !important; /* Sariq rang */
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .camera-wrapper.loading::after {
-            content: "Kamera yuklanmoqda...";
-            color: #000;
-            font-size: 14px;
-            font-weight: bold;
-            position: absolute;
-        }
-        
-        .camera-wrapper.loading video {
-            display: none;
-        }
+        /* Tayyor bo'lganda ko'k rang */
+        .camera-wrapper.ready { border-color: #2ea6ff; }
+        .camera-wrapper.sending { border-color: #ff9500; } /* Sariq */
+        .camera-wrapper.success { border-color: #34c759; } /* Yashil */
 
         video {
             width: 100%; height: 100%; object-fit: cover;
-            transform: scaleX(-1);
+            transform: scaleX(-1); /* Oyna effekti */
         }
 
-        #preview-img {
-            width: 100%; height: 100%; object-fit: cover; display: none;
+        /* YUZ RAMKASI */
+        .face-guide {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 140px; height: 190px;
+            border: 2px dashed rgba(255, 255, 255, 0.8);
+            border-radius: 50% 50% 40% 40%;
+            box-shadow: 0 0 0 100px rgba(0, 0, 0, 0.4); 
+            z-index: 20;
+            pointer-events: none;
         }
 
-        /* PROGRESS */
-        .steps-container {
-            display: flex; gap: 5px; margin-top: 20px;
-        }
-        .step-dot {
-            width: 15px; height: 15px; border-radius: 50%; background: #eee;
-        }
-        .step-dot.done { background: #34c759; }
-        .step-dot.current { background: #2ea6ff; transform: scale(1.2); }
-
-        #status-text { margin-top: 15px; color: #555; font-size: 14px; font-weight: 500; text-align: center; max-width: 90%;}
-        #debug-info { position: absolute; bottom: 5px; font-size: 10px; color: #ccc; }
-        
-        button {
-            font-size: 14px;
+        /* --- TUGMA --- */
+        #btn-capture {
+            margin-top: 30px;
+            padding: 15px 50px;
+            font-size: 16px;
+            background-color: #e5e5e5;
+            color: #999;
+            border: none;
+            border-radius: 30px;
+            cursor: not-allowed;
+            font-weight: 600;
             transition: all 0.3s;
+            width: 80%; max-width: 300px;
         }
-        button:hover {
-            background: #1e8cd6 !important;
-            transform: scale(1.05);
+
+        #btn-capture.active {
+            background-color: #2481cc;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(36, 129, 204, 0.3);
         }
-        button:active {
-            transform: scale(0.95);
+
+        #status-text {
+            margin-top: 10px; font-size: 13px; color: #888;
         }
-        
+
         canvas { display: none; }
     </style>
 </head>
 <body>
 
-    <h2 id="task-title">AI Yuklanmoqda...</h2>
+    <h2 id="main-title">Kameraga qarang</h2>
 
     <div class="camera-wrapper" id="cam-box">
+        <div class="face-guide"></div>
         <video id="video" autoplay playsinline muted></video>
-        <img id="preview-img" src="" alt="Captured">
     </div>
 
-    <div class="steps-container">
-        <div class="step-dot" id="dot-1"></div>
-        <div class="step-dot" id="dot-2"></div>
-        <div class="step-dot" id="dot-3"></div>
-    </div>
-
-    <div id="status-text">Kutish...</div>
-    <div id="debug-info">Init...</div>
+    <div id="status-text">Tizim yuklanmoqda...</div>
+    <button id="btn-capture" disabled>Rasmga Olish</button>
+    <canvas id="canvas"></canvas>
 
     <script>
         const video = document.getElementById('video');
-        const previewImg = document.getElementById('preview-img');
-        const title = document.getElementById('task-title');
-        const statusTxt = document.getElementById('status-text');
+        const btn = document.getElementById('btn-capture');
+        const statusText = document.getElementById('status-text');
         const camBox = document.getElementById('cam-box');
-        const debugTxt = document.getElementById('debug-info');
+        const title = document.getElementById('main-title');
         const tg = window.Telegram.WebApp;
 
         tg.expand();
-        
-        // Telegram Web App sozlamalari
-        tg.ready();
-        tg.enableClosingConfirmation();
 
-        let currentStep = 0; // 0=Yuklash, 1=Chap, 2=O'ng, 3=Markaz
         let userLocation = null;
-        let detectionInterval;
-        let cameraStream = null;
-        let locationVerified = false;
-        let centerCount = 0; // To'g'riga qarab bo'lish uchun counter
-        const REQUIRED_CENTER_COUNT = 10; // 10 marta to'g'ri bo'lishi kerak (2 soniya)
+        
+        // --- 1. SIZNING GOOGLE SCRIPT LINKINGIZ ---
+        const GOOGLE_URL = "https://script.google.com/macros/s/AKfycbxsv55RKRrWCv51n7Mq-CA_oRiMZvpcZj5tDDeUnSXirk_Y-2BSzmoItF6rxhLdEBXL/exec"; 
 
-        // Ofis lokatsiyasi (config.json dan)
-        const OFFICE_LOCATION = {
-            lat: 40.482212163958806,
-            long: 70.7676182251774,
-            allowedDistance: 500 // metr
-        };
-
-        // Masofani hisoblash funksiyasi (Haversine formula)
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371000; // Yer radiusi metrlarda
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c; // metr
-        }
-
-        // 1. ISHNI BOSHLASH - AVVAL LOKATSIYANI TEKSHIRISH
-        async function init() {
+        // --- 2. KAMERANI YOQISH ---
+        async function startCamera() {
             try {
-                title.innerText = "📍 Lokatsiya tekshirilmoqda...";
-                statusTxt.innerText = "Iltimos, lokatsiya ruxsatini bering";
-                debugTxt.innerText = "Lokatsiya so'ralmoqda...";
-
-                // AVVAL LOKATSIYANI OLISH VA TEKSHIRISH
-                if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                        async (position) => {
-                            userLocation = { 
-                                lat: position.coords.latitude, 
-                                long: position.coords.longitude 
-                            };
-                            console.log("📍 Lokatsiya olingan:", userLocation);
-                            
-                            // Lokatsiyani tekshirish
-                            const distance = calculateDistance(
-                                OFFICE_LOCATION.lat,
-                                OFFICE_LOCATION.long,
-                                userLocation.lat,
-                                userLocation.long
-                            );
-                            
-                            console.log(`📍 Masofa: ${Math.round(distance)}m (Ruxsat: ${OFFICE_LOCATION.allowedDistance}m)`);
-                            
-                            if (distance > OFFICE_LOCATION.allowedDistance) {
-                                // Ish hududida emas
-                                title.innerText = "❌ Bu hududda emasiz";
-                                title.style.color = "red";
-                                statusTxt.innerText = `Siz ofisdan ${Math.round(distance)}m uzoqdasiz.\nTalab: ${OFFICE_LOCATION.allowedDistance}m ichida bo'lish kerak.`;
-                                debugTxt.innerText = "Lokatsiya tekshiruvi muvaffaqiyatsiz";
-                                locationVerified = false;
-                                
-                                // Kamera yuklanishini to'xtatish
-                                return;
-                            }
-                            
-                            // Lokatsiya to'g'ri - davom etamiz
-                            locationVerified = true;
-                            debugTxt.innerText = `✅ Lokatsiya OK (${Math.round(distance)}m)`;
-                            
-                            // Endi AI modellar va kamerani yuklaymiz
-                            await loadModelsAndStartCamera();
-                        },
-                        (error) => {
-                            console.error("❌ Lokatsiya xatosi:", error);
-                            let errorMsg = "Lokatsiya olinmadi";
-                            
-                            if (error.code === error.PERMISSION_DENIED) {
-                                errorMsg = "Lokatsiya ruxsati rad etildi. Sozlamalarda ruxsat bering.";
-                            } else if (error.code === error.POSITION_UNAVAILABLE) {
-                                errorMsg = "Lokatsiya topilmadi.";
-                            } else if (error.code === error.TIMEOUT) {
-                                errorMsg = "Lokatsiya so'rovi vaqti tugadi.";
-                            }
-                            
-                            title.innerText = "❌ Lokatsiya xatosi";
-                            title.style.color = "red";
-                            statusTxt.innerText = errorMsg;
-                            debugTxt.innerText = "Lokatsiya olinmadi";
-                            locationVerified = false;
-                            
-                            // Qayta urinish tugmasi
-                            const retryBtn = document.createElement('button');
-                            retryBtn.innerText = "🔄 Qayta urinish";
-                            retryBtn.style.cssText = "margin-top: 15px; padding: 10px 20px; background: #2ea6ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 14px;";
-                            retryBtn.onclick = () => {
-                                retryBtn.remove();
-                                init();
-                            };
-                            
-                            const oldBtn = document.querySelector('#retry-location-btn');
-                            if (oldBtn) oldBtn.remove();
-                            retryBtn.id = 'retry-location-btn';
-                            document.body.appendChild(retryBtn);
-                        },
-                        {
-                            enableHighAccuracy: true,
-                            timeout: 10000,
-                            maximumAge: 0
-                        }
-                    );
-                } else {
-                    // Geolocation qo'llab-quvvatlanmaydi
-                    title.innerText = "❌ Xatolik";
-                    title.style.color = "red";
-                    statusTxt.innerText = "Brauzeringiz lokatsiyani qo'llab-quvvatlamaydi.";
-                    debugTxt.innerText = "Geolocation yo'q";
-                    locationVerified = false;
-                }
-            } catch (e) {
-                console.error("❌ Init xatosi:", e);
-                title.innerText = "❌ Xatolik";
-                title.style.color = "red";
-                statusTxt.innerText = "Tizim xatosi: " + e.message;
-            }
-        }
-
-        // AI MODELLAR VA KAMERANI YUKLASH
-        async function loadModelsAndStartCamera() {
-            try {
-                title.innerText = "AI Yuklanmoqda...";
-                statusTxt.innerText = "Kutish...";
+                statusText.innerText = "Kamera ochilmoqda...";
                 
-                // AI Model (CDN)
-                debugTxt.innerText = "Modellar yuklanmoqda...";
-                await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model');
-                await faceapi.nets.faceLandmark68TinyNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model');
-                
-                debugTxt.innerText = "Modellar OK. Kamera...";
-                statusTxt.innerText = "Kamera yuklanmoqda...";
-                startCamera();
-            } catch (e) {
-                console.error("❌ Models/Kamera xatosi:", e);
-                title.innerText = "❌ Xatolik";
-                title.style.color = "red";
-                statusTxt.innerText = "Modellar yoki kamera yuklanmadi: " + e.message;
-            }
-        }
-
-        // 2. KAMERA
-        async function startCamera(retryCount = 0) {
-            const maxRetries = 3;
-            
-            try {
-                // Avval eski streamni to'xtatamiz (agar bo'lsa)
-                if (video.srcObject) {
-                    const tracks = video.srcObject.getTracks();
-                    tracks.forEach(track => track.stop());
-                    video.srcObject = null;
-                }
-                
-                // Kamera parametrlarini moslashtirish
-                // Desktop va mobil uchun moslashuvchan
-                let constraints = {
-                    video: {
-                        // Avval "user" (old kamera) bilan urinib ko'ramiz
-                        facingMode: { ideal: "user" },
-                        // Ideal o'lchamlar
-                        width: { min: 320, ideal: 640, max: 1280 },
-                        height: { min: 240, ideal: 480, max: 720 }
-                    },
-                    audio: false
-                };
-                
-                // Agar ideal o'lchamlar ishlamasa, oddiy parametrlar bilan urinib ko'ramiz
-                if (retryCount === 1) {
-                    // Ikkinchi urinish: faqat facingMode
-                    constraints.video = { facingMode: { ideal: "user" } };
-                } else if (retryCount >= 2) {
-                    // Uchinchi urinish: har qanday kamera
-                    constraints.video = true; // Har qanday kamera
-                }
-                
-                debugTxt.innerText = `Kamera ochilmoqda... (${retryCount + 1}/${maxRetries + 1})`;
-                
-                // Loading ko'rsatish
-                camBox.classList.add('loading');
-                
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                cameraStream = stream; // Streamni saqlash
-                video.srcObject = stream;
-                
-                // Loading ni olib tashlash
-                camBox.classList.remove('loading');
-                
-                video.onloadedmetadata = () => {
-                    // Video metadata yuklangandan keyin play qilish
-                    video.play().then(() => {
-                        // Video o'ynatilgandan keyin biroz kutish (desktop uchun)
-                        setTimeout(() => {
-                            if (video.readyState >= 2) { // HAVE_CURRENT_DATA yoki undan yuqori
-                                debugTxt.innerText = "Kamera tayyor!";
-                                title.innerText = "⬅️ Boshingizni CHAPGA buring";
-                                updateDots(1);
-                                currentStep = 1; 
-                                centerCount = 0; // Counter ni qayta boshlash
-                                camBox.classList.add('active');
-                                
-                                // Tekshiruvni boshlash
-                                detectionInterval = setInterval(detectFace, 200);
-                            } else {
-                                console.error("❌ Video readyState:", video.readyState);
-                                showCameraError("Video tayyorlanmadi");
-                            }
-                        }, 300); // Desktop uchun 300ms kutish
-                    }).catch(err => {
-                        console.error("❌ Video play xatosi:", err);
-                        showCameraError("Video o'ynatib bo'lmadi");
+                // Mobil va Desktop uchun universal sozlama
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 720 } }, 
+                        audio: false 
                     });
-                };
-                
-                // Video yuklanishini kuzatish
-                video.oncanplay = () => {
-                    console.log("✅ Video can play");
-                };
-                
-                video.oncanplaythrough = () => {
-                    console.log("✅ Video can play through");
-                };
-                
-                video.onerror = (err) => {
-                    console.error("❌ Video element xatosi:", err);
-                    showCameraError("Video xatosi");
-                };
-                
-            } catch (e) {
-                console.error("❌ Kamera xatosi:", e);
-                
-                let errorMessage = "Kamera xatosi";
-                
-                if (e.name === "NotReadableError") {
-                    errorMessage = "Kamera boshqa dastur tomonidan ishlatilmoqda. Barcha dasturlarni yoping va qayta urinib ko'ring.";
-                } else if (e.name === "NotFoundError") {
-                    errorMessage = "Kamera topilmadi. Iltimos, kamerani ulang.";
-                } else if (e.name === "NotAllowedError" || e.name === "PermissionDeniedError") {
-                    errorMessage = "Kamera ruxsati rad etildi. Sozlamalarda ruxsat bering.";
-                } else if (e.name === "OverconstrainedError") {
-                    errorMessage = "Kamera parametrlari mos kelmayapti. Qayta urinib ko'ramiz...";
-                } else {
-                    errorMessage = `Kamera xatosi: ${e.name || e.message}`;
+                } catch (e) {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 }
-                
-                if (retryCount < maxRetries && (e.name === "OverconstrainedError" || e.name === "NotReadableError")) {
-                    // Qayta urinish
-                    debugTxt.innerText = `Qayta urinilmoqda... (${retryCount + 1}/${maxRetries})`;
-                    setTimeout(() => {
-                        startCamera(retryCount + 1);
-                    }, 1000);
-                } else {
-                    showCameraError(errorMessage);
-                }
-            }
-        }
-        
-        function showCameraError(message) {
-            title.innerText = "❌ Xatolik";
-            title.style.color = "red";
-            statusTxt.innerText = message;
-            debugTxt.innerText = "Kamera ishlamayapti";
-            camBox.classList.remove('active');
-            
-            // Eski tugmani olib tashlash
-            const oldBtn = document.querySelector('#retry-camera-btn');
-            if (oldBtn) oldBtn.remove();
-            
-            // Qayta urinish tugmasi
-            const retryBtn = document.createElement('button');
-            retryBtn.id = 'retry-camera-btn';
-            retryBtn.innerText = "🔄 Qayta urinish";
-            retryBtn.style.cssText = "margin-top: 15px; padding: 10px 20px; background: #2ea6ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 14px;";
-            retryBtn.onclick = () => {
-                retryBtn.remove();
-                title.style.color = "#333";
-                statusTxt.innerText = "Kutish...";
-                debugTxt.innerText = "Qayta urinilmoqda...";
-                startCamera(0);
-            };
-            
-            document.body.appendChild(retryBtn);
-        }
-        
-        // Kamera streamini to'xtatish funksiyasi
-        function stopCamera() {
-            if (cameraStream) {
-                const tracks = cameraStream.getTracks();
-                tracks.forEach(track => track.stop());
-                cameraStream = null;
-            }
-            if (video.srcObject) {
-                video.srcObject = null;
-            }
-            if (detectionInterval) {
-                clearInterval(detectionInterval);
-                detectionInterval = null;
-            }
-        }
-        
-        // Sahifa yopilganda kamerani to'xtatish va keyboard ni yopish
-        window.addEventListener('beforeunload', () => {
-            stopCamera();
-            // Keyboard ni yopish
-            if (typeof tg.MainButton !== 'undefined') {
-                tg.MainButton.hide();
-            }
-        });
-        
-        // Telegram Web App yopilganda
-        tg.onEvent('viewportChanged', () => {
-            // Viewport o'zgarganda keyboard ni yopish
-            if (typeof tg.MainButton !== 'undefined') {
-                tg.MainButton.hide();
-            }
-        });
 
-        // 3. AI TEKSHIRUVI
-        async function detectFace() {
-            if (currentStep === 4) return;
-
-            try {
-                // Eng yengil modelni ishlatamiz
-                const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true);
-
-                if (detection) {
-                    const landmarks = detection.landmarks;
-                    const nose = landmarks.getNose()[0];
-                    const box = detection.detection.box;
-
-                    // Burun joylashuvini hisoblash (0 dan 1 gacha)
-                    // 0 = Yuzning chap cheti, 1 = O'ng cheti, 0.5 = O'rtasi
-                    const noseRatio = (nose.x - box.x) / box.width;
-
-                    // Debug uchun
-                    debugTxt.innerText = `Pos: ${noseRatio.toFixed(2)} | Step: ${currentStep}`;
-
-                    // MANTIQ (Oyna effekti borligini hisobga olib):
-                    // Oyna rejimida: Chapga qaraganda burun O'ngga siljiydi (> 0.5)
-                    
-                    if (currentStep === 1) { // CHAPGA SO'RALDI
-                        if (noseRatio > 0.60) { // O'ng tomonga siljish (Oyna effekti)
-                            completeStep(1);
-                        }
-                    } 
-                    else if (currentStep === 2) { // O'NGGA SO'RALDI
-                        if (noseRatio < 0.40) { // Chap tomonga siljish
-                            completeStep(2);
-                        }
-                    }
-                    else if (currentStep === 3) { // MARKAZ - TO'G'RIGA QARAB
-                        // Qattiqroq tekshirish: 0.48-0.52 orasida bo'lishi kerak
-                        if (noseRatio >= 0.48 && noseRatio <= 0.52) {
-                            centerCount++;
-                            statusTxt.innerText = `To'g'riga qarab... (${centerCount}/${REQUIRED_CENTER_COUNT})`;
-                            
-                            // 10 marta ketma-ket to'g'ri bo'lishi kerak
-                            if (centerCount >= REQUIRED_CENTER_COUNT) {
-                                completeStep(3);
-                            }
-                        } else {
-                            // Agar to'g'ri bo'lmasa, counter ni qayta boshlash
-                            if (centerCount > 0) {
-                                centerCount = 0;
-                                statusTxt.innerText = "To'g'riga qarab kuling";
-                            }
-                        }
-                    }
-                } else {
-                    statusTxt.innerText = "Yuz qidirilmoqda...";
-                }
-            } catch (e) {
-                console.error("❌ Detection xatosi:", e);
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    camBox.classList.add('ready');
+                    statusText.innerText = "Lokatsiya aniqlanmoqda...";
+                    getLocation();
+                };
+            } catch (err) {
+                alert("Kameraga ruxsat bering! " + err);
+                statusText.innerText = "Kamera xatosi";
             }
         }
 
-        // 4. QADAMNI YAKUNLASH
-        function completeStep(step) {
-            if (step === 1) {
-                currentStep = 2;
-                centerCount = 0; // Counter ni qayta boshlash
-                title.innerText = "➡️ Endi O'NGGA buring";
-                updateDots(2);
-            } else if (step === 2) {
-                currentStep = 3;
-                centerCount = 0; // Counter ni qayta boshlash
-                title.innerText = "🙂 To'g'riga qarab kuling";
-                statusTxt.innerText = "To'g'riga qarab kuling";
-                updateDots(3);
-            } else if (step === 3) {
-                currentStep = 4;
-                clearInterval(detectionInterval); // To'xtatish
-                captureAndSend();
+        // --- 3. LOKATSIYA OLISH ---
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        userLocation = { lat: pos.coords.latitude, long: pos.coords.longitude };
+                        statusText.innerText = "✅ Tayyor. Rasmga tushing.";
+                        statusText.style.color = "green";
+                        btn.disabled = false;
+                        btn.classList.add('active');
+                    },
+                    (err) => {
+                        statusText.innerText = "❌ GPS yoqing va qayta kiring!";
+                        statusText.style.color = "red";
+                        alert("Iltimos, telefonda GPS (Geolokatsiya) ni yoqing.");
+                    },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            } else {
+                statusText.innerText = "GPS qo'llab-quvvatlanmaydi";
             }
         }
 
-        function updateDots(step) {
-            document.getElementById('dot-1').className = step >= 1 ? "step-dot done" : "step-dot";
-            document.getElementById('dot-2').className = step >= 2 ? "step-dot done" : "step-dot";
-            document.getElementById('dot-3').className = step >= 3 ? "step-dot done" : "step-dot";
-            
-            // Currentni belgilash
-            document.querySelectorAll('.step-dot').forEach(dot => dot.classList.remove('current'));
-            if(step <= 3) document.getElementById(`dot-${step}`).classList.add('current');
-        }
+        // --- 4. YUBORISH (GOOGLE SCRIPT ORQALI) ---
+        btn.addEventListener('click', () => {
+            if (!userLocation) {
+                alert("Lokatsiya aniqlanmadi!");
+                return;
+            }
 
-        // 5. OLISH VA YUBORISH
-        function captureAndSend() {
-            title.innerText = "✅ Ajoyib! Yuborilmoqda...";
-            title.style.color = "green";
-            camBox.className = "camera-wrapper success";
-            statusTxt.innerText = "Rasm tayyorlanmoqda...";
-            
+            // UI o'zgarishi
+            title.innerText = "Yuborilmoqda...";
+            btn.innerText = "⏳ Yuklanmoqda...";
+            btn.disabled = true;
+            btn.style.backgroundColor = "#ff9500"; // Sariq
+            camBox.classList.remove('ready');
+            camBox.classList.add('sending');
+
             const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // O'lchamlarni olamiz
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            const ctx = canvas.getContext('2d');
             
             // Oyna effektini to'g'irlash
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
             ctx.drawImage(video, 0, 0);
 
-            // Ekranda ko'rsatish
-            video.style.display = 'none';
-            previewImg.src = canvas.toDataURL('image/jpeg');
-            previewImg.style.display = 'block';
+            // 🔥 SIFATLI RASM (HD)
+            // 0.8 sifat (80%) juda yaxshi va tez ketadi
+            const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
 
-            // Telegram Web App uchun juda kichik rasm (max 4096 bayt)
-            // Rasmni kichraytirish va sifatni pasaytirish
-            const smallCanvas = document.createElement('canvas');
-            let size = 150; // 200 dan 150 ga kamaytirdik - kichikroq boshlash
-            let quality = 0.4; // 0.5 dan 0.4 ga pasaytirdik
-            smallCanvas.width = size; 
-            smallCanvas.height = size;
-            const sCtx = smallCanvas.getContext('2d');
+            // User ID ni olish
+            const userId = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 0;
             
-            // Markazdan qirqish
-            const minSide = Math.min(canvas.width, canvas.height);
-            const sx = (canvas.width - minSide) / 2;
-            const sy = (canvas.height - minSide) / 2;
-            sCtx.drawImage(canvas, sx, sy, minSide, minSide, 0, 0, size, size);
+            // Lokatsiyani string qilish
+            const locString = JSON.stringify(userLocation);
 
-            // Rasmni base64 ga o'tkazish va hajmini tekshirish
-            let base64 = smallCanvas.toDataURL('image/jpeg', quality);
-            let base64Data = base64.split(',')[1];
-            
-            // Agar hali ham katta bo'lsa, yanada kichraytiramiz
-            const maxSize = 3000; // 3500 dan 3000 ga kamaytirdik - xavfsizroq
-            let attempts = 0;
-            const maxAttempts = 8; // 5 dan 8 ga oshirdik
-            while (base64Data.length > maxSize && attempts < maxAttempts) {
-                size = Math.max(100, size - 15); // 150 dan 100 ga, 20 dan 15 ga
-                quality = Math.max(0.25, quality - 0.05); // 0.3 dan 0.25 ga, 0.1 dan 0.05 ga
-                smallCanvas.width = size;
-                smallCanvas.height = size;
-                sCtx.clearRect(0, 0, size, size);
-                sCtx.drawImage(canvas, sx, sy, minSide, minSide, 0, 0, size, size);
-                base64 = smallCanvas.toDataURL('image/jpeg', quality);
-                base64Data = base64.split(',')[1];
-                attempts++;
-                statusTxt.innerText = `Rasm kichraytirilmoqda... (${attempts}/${maxAttempts})`;
-                console.log(`🔄 Rasm kichraytirilmoqda... (${base64Data.length} bytes, size: ${size}, quality: ${quality})`);
-            }
-            
-            // Agar hali ham katta bo'lsa, xatolik
-            if (base64Data.length > maxSize) {
-                console.error(`❌ Rasm hali ham katta: ${base64Data.length} bytes (max: ${maxSize})`);
-            }
+            // Googlega POST so'rov
+            fetch(GOOGLE_URL, {
+                method: "POST",
+                mode: "no-cors", // MUHIM: Xatolik bermasligi uchun
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    image: base64,
+                    chat_id: userId,
+                    // Lokatsiyani "caption" ga yashiramiz
+                    caption: "LOC_DATA:" + locString 
+                })
+            })
+            .then(() => {
+                // Muvaffaqiyatli
+                title.innerText = "✅ Muvaffaqiyatli!";
+                btn.innerText = "Ketdi!";
+                btn.style.backgroundColor = "#34c759"; // Yashil
+                camBox.classList.remove('sending');
+                camBox.classList.add('success');
+                
+                // Botga signal (shart emas, rasm o'zi boradi, lekin yopish uchun kerak)
+                setTimeout(() => { 
+                    tg.close(); 
+                }, 1500);
+            })
+            .catch(err => {
+                alert("Internet xatosi: " + err);
+                title.innerText = "Qayta urining";
+                btn.disabled = false;
+                btn.innerText = "Rasmga Olish";
+                btn.style.backgroundColor = "#2481cc";
+                camBox.classList.remove('sending');
+                camBox.classList.add('ready');
+            });
+        });
 
-            // Ma'lumotlarni yuborish
-            setTimeout(() => {
-                const data = {
-                    img: base64Data,
-                    loc: userLocation || { lat: 0, long: 0 }
-                };
-                
-                const jsonData = JSON.stringify(data);
-                const dataSize = new Blob([jsonData]).size;
-                
-                console.log("📤 Ma'lumot yuborilmoqda...", { 
-                    hasImage: !!data.img, 
-                    imageSize: base64Data.length,
-                    hasLocation: !!data.loc,
-                    location: data.loc,
-                    totalSize: dataSize,
-                    maxSize: 4096
-                });
-                
-                // Ma'lumot hajmini tekshirish - qat'iy tekshirish
-                if (dataSize > 4000) { // 4096 dan 4000 ga kamaytirdik - xavfsizroq
-                    console.error("❌ Ma'lumot juda katta:", dataSize, "bytes (max: 4000)");
-                    statusTxt.innerText = `❌ Rasm juda katta (${Math.round(dataSize/1024)}KB). Qayta urinib ko'ring.`;
-                    title.innerText = "❌ Xatolik";
-                    title.style.color = "red";
-                    
-                    // Qayta urinish tugmasi
-                    const retryBtn = document.createElement('button');
-                    retryBtn.innerText = "🔄 Qayta urinish";
-                    retryBtn.style.cssText = "margin-top: 15px; padding: 10px 20px; background: #2ea6ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 14px;";
-                    retryBtn.onclick = () => {
-                        retryBtn.remove();
-                        // Kamerani qayta ishga tushirish
-                        video.style.display = 'block';
-                        previewImg.style.display = 'none';
-                        currentStep = 1;
-                        title.innerText = "⬅️ Boshingizni CHAPGA buring";
-                        title.style.color = "#333";
-                        statusTxt.innerText = "Yuz qidirilmoqda...";
-                        camBox.classList.remove('success');
-                        camBox.classList.add('active');
-                        detectionInterval = setInterval(detectFace, 200);
-                    };
-                    
-                    const oldBtn = document.querySelector('#retry-send-btn');
-                    if (oldBtn) oldBtn.remove();
-                    retryBtn.id = 'retry-send-btn';
-                    document.body.appendChild(retryBtn);
-                    return;
-                }
-                
-                statusTxt.innerText = "Yuborilmoqda...";
-                
-                    try {
-                        // Telegram Web App sendData
-                        if (typeof tg.sendData === 'function') {
-                            tg.sendData(jsonData);
-                            console.log("✅ Ma'lumot yuborildi!");
-                            statusTxt.innerText = "✅ Yuborildi!";
-                            
-                            // Ma'lumot yuborilgandan keyin Web App ni yopish va keyboard ni yopish
-                            setTimeout(() => {
-                                // Keyboard ni yopish
-                                if (typeof tg.MainButton !== 'undefined') {
-                                    tg.MainButton.hide();
-                                }
-                                // Web App ni yopish
-                                if (typeof tg.close === 'function') {
-                                    tg.close();
-                                }
-                            }, 1500);
-                        } else {
-                            throw new Error("sendData funksiyasi mavjud emas");
-                        }
-                } catch (e) {
-                    console.error("❌ Yuborish xatosi:", e);
-                    statusTxt.innerText = `❌ Xatolik: ${e.message || e}`;
-                    title.innerText = "❌ Xatolik";
-                    title.style.color = "red";
-                    
-                    // Qayta urinish tugmasi
-                    const retryBtn = document.createElement('button');
-                    retryBtn.innerText = "🔄 Qayta urinish";
-                    retryBtn.style.cssText = "margin-top: 15px; padding: 10px 20px; background: #2ea6ff; color: white; border: none; border-radius: 20px; cursor: pointer; font-size: 14px;";
-                    retryBtn.onclick = () => {
-                        retryBtn.remove();
-                        captureAndSend();
-                    };
-                    
-                    const oldBtn = document.querySelector('#retry-send-btn');
-                    if (oldBtn) oldBtn.remove();
-                    retryBtn.id = 'retry-send-btn';
-                    document.body.appendChild(retryBtn);
-                }
-            }, 500);
-        }
-
-        init();
+        // Ishga tushirish
+        startCamera();
     </script>
 </body>
 </html>
