@@ -103,6 +103,7 @@
     <div id="status-text">Tizim yuklanmoqda...</div>
     <button id="btn-capture" disabled>Rasmga Olish</button>
     <div id="debug-text"></div>
+    <div id="user-id-status" style="margin-top: 10px; font-size: 12px; color: #888; display: none;"></div>
     <canvas id="canvas"></canvas>
 
     <script>
@@ -110,13 +111,120 @@
         const btn = document.getElementById('btn-capture');
         const statusText = document.getElementById('status-text');
         const debugText = document.getElementById('debug-text');
+        const userIdStatus = document.getElementById('user-id-status');
         const camBox = document.getElementById('cam-box');
         const title = document.getElementById('main-title');
-        const tg = window.Telegram.WebApp;
+        // Telegram Web App tekshiruvi
+        let tg = null;
+        try {
+            tg = window.Telegram.WebApp;
+            if (!tg) {
+                throw new Error("Telegram WebApp API mavjud emas");
+            }
+        } catch (e) {
+            console.error("Telegram WebApp xatosi:", e);
+            alert("Bu sahifa faqat Telegram orqali ishlaydi!");
+        }
 
-        tg.expand();
+        if (tg) {
+            tg.expand();
+            tg.ready();
+        }
 
         let userLocation = null;
+        let userId = null; // Global o'zgaruvchi
+        
+        // User ID ni dastlabki yuklash - TO'LIQ TEKSHIRISH
+        function getUserId() {
+            if (!tg) {
+                debug("Telegram WebApp API mavjud emas");
+                return null;
+            }
+            
+            // Debug: barcha ma'lumotlarni ko'rsatish
+            console.log("🔍 Telegram WebApp tekshiruvi:");
+            console.log("  - tg:", tg);
+            console.log("  - tg.initDataUnsafe:", tg.initDataUnsafe);
+            console.log("  - tg.initData:", tg.initData ? "mavjud (" + tg.initData.length + " chars)" : "yo'q");
+            console.log("  - tg.version:", tg.version);
+            console.log("  - tg.platform:", tg.platform);
+            
+            // Usul 1: initDataUnsafe dan (eng ishonchli)
+            if (tg.initDataUnsafe) {
+                console.log("  - initDataUnsafe keys:", Object.keys(tg.initDataUnsafe));
+                
+                if (tg.initDataUnsafe.user) {
+                    console.log("  - user object:", tg.initDataUnsafe.user);
+                    if (tg.initDataUnsafe.user.id) {
+                        userId = tg.initDataUnsafe.user.id;
+                        debug(`✅ User ID (initDataUnsafe): ${userId}`);
+                        return userId;
+                    }
+                }
+            }
+            
+            // Usul 2: initData ni parse qilish
+            if (tg.initData) {
+                try {
+                    console.log("  - Parsing initData...");
+                    const initData = new URLSearchParams(tg.initData);
+                    const userStr = initData.get('user');
+                    if (userStr) {
+                        const user = JSON.parse(decodeURIComponent(userStr));
+                        console.log("  - Parsed user:", user);
+                        if (user.id) {
+                            userId = user.id;
+                            debug(`✅ User ID (initData parse): ${userId}`);
+                            return userId;
+                        }
+                    }
+                } catch (e) {
+                    console.error("  - InitData parse xatosi:", e);
+                }
+            }
+            
+            // Usul 3: WebAppUser dan (ba'zi versiyalarda)
+            if (tg.WebAppUser && tg.WebAppUser.id) {
+                userId = tg.WebAppUser.id;
+                debug(`✅ User ID (WebAppUser): ${userId}`);
+                return userId;
+            }
+            
+            // Usul 4: BackendRequest orqali (agar mavjud bo'lsa)
+            if (tg.initDataUnsafe && tg.initDataUnsafe.start_param) {
+                const startParam = tg.initDataUnsafe.start_param;
+                if (startParam && /^\d+$/.test(startParam)) {
+                    userId = parseInt(startParam);
+                    debug(`✅ User ID (start_param): ${userId}`);
+                    return userId;
+                }
+            }
+            
+            debug("❌ User ID topilmadi - barcha usullar sinab ko'rilgan");
+            console.error("❌ User ID topilmadi. Barcha variantlar sinab ko'rilgan.");
+            return null;
+        }
+        
+        // Dastlabki yuklash - biroz kutib keyin
+        setTimeout(() => {
+            userId = getUserId();
+            if (userId) {
+                debug(`✅ User ID tayyor: ${userId}`);
+                userIdStatus.innerText = `User ID: ${userId}`;
+                userIdStatus.style.color = "green";
+                userIdStatus.style.display = "block";
+                statusText.innerText = "Lokatsiya aniqlanmoqda...";
+            } else {
+                debug("⚠️ User ID topilmadi - bot orqali ochish kerak");
+                userIdStatus.innerText = "❌ User ID topilmadi - Bot orqali oching!";
+                userIdStatus.style.color = "red";
+                userIdStatus.style.display = "block";
+                statusText.innerText = "⚠️ Bot orqali oching";
+                statusText.style.color = "orange";
+                title.innerText = "⚠️ Bot orqali oching";
+                title.style.color = "orange";
+            }
+        }, 500); // 500ms kutish - WebApp to'liq yuklanishi uchun
         
         // --- 1. SIZNING GOOGLE SCRIPT LINKINGIZ ---
         // ⚠️ O'Z GOOGLE SCRIPT LINKINGIZNI QO'YING!
@@ -163,6 +271,18 @@
 
         // --- 3. LOKATSIYA OLISH ---
         function getLocation() {
+            // Avval User ID ni tekshiramiz
+            if (!userId) {
+                userId = getUserId();
+            }
+            
+            if (!userId) {
+                statusText.innerText = "❌ User ID topilmadi. Bot orqali oching.";
+                statusText.style.color = "red";
+                debug("❌ User ID topilmadi - lokatsiya olinmaydi");
+                return;
+            }
+            
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
@@ -194,11 +314,36 @@
                 return;
             }
 
-            // User ID ni olish
-            const userId = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
+            // User ID ni tekshirish (allaqachon yuklangan)
             if (!userId) {
-                alert("User ID topilmadi!");
-                debug("User ID topilmadi");
+                debug("User ID qayta tekshirilmoqda...");
+                userId = getUserId();
+            }
+            
+            if (!userId) {
+                // Barcha ma'lumotlarni ko'rsatish
+                const debugInfo = `
+Telegram WebApp ma'lumotlari:
+- initDataUnsafe: ${tg && tg.initDataUnsafe ? 'mavjud' : 'yo\'q'}
+- initData: ${tg && tg.initData ? 'mavjud' : 'yo\'q'}
+- version: ${tg && tg.version ? tg.version : 'yo\'q'}
+- platform: ${tg && tg.platform ? tg.platform : 'yo\'q'}
+
+⚠️ MUHIM: Bu sahifa faqat Telegram bot orqali ochilganda ishlaydi!
+Bot tugmasini bosing va Web App ni oching.
+                `;
+                
+                console.error(debugInfo);
+                alert("User ID topilmadi!\n\n" + 
+                      "Bu sahifa faqat Telegram bot orqali ochilganda ishlaydi.\n\n" +
+                      "Qanday qilish kerak:\n" +
+                      "1. Botga /start buyrug'ini yuboring\n" +
+                      "2. 'Yuzni Tasdiqlash' tugmasini bosing\n" +
+                      "3. Web App ochiladi va User ID avtomatik topiladi");
+                
+                debug("❌ User ID topilmadi - bot orqali ochish kerak");
+                statusText.innerText = "❌ User ID topilmadi. Bot orqali oching.";
+                statusText.style.color = "red";
                 return;
             }
 
