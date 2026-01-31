@@ -147,12 +147,11 @@
                 console.log("🔹 Login so'rovi yuborilmoqda:", passport);
                 console.log("🔹 Server URL:", SERVER_URL);
                 
-                const res = await fetch(`${SERVER_URL}/login`, { 
-                    method: 'POST', 
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ passport }) 
+                // CORS preflight'ni oldini olish uchun "simple request" yuboramiz:
+                // Content-Type header qo'ymaymiz (brauzer text/plain qilib yuboradi).
+                const res = await fetch(`${SERVER_URL}/login`, {
+                    method: 'POST',
+                    body: JSON.stringify({ passport })
                 });
                 
                 console.log("🔹 Server javob status:", res.status);
@@ -249,19 +248,18 @@
                     const vidBase64 = reader.result.split(',')[1];
                     
                     try {
+                        // Upload uchun ham preflight bo'lmasin: FormData (multipart/form-data) ishlatamiz
+                        const fd = new FormData();
+                        fd.append("passport", localStorage.getItem('u_pass'));
+                        fd.append("name", localStorage.getItem('u_name'));
+                        fd.append("tg_id", localStorage.getItem('u_tg'));
+                        fd.append("image", imgBase64);
+                        fd.append("video", vidBase64);
+                        fd.append("loc", JSON.stringify(userLocation));
+
                         const res = await fetch(`${SERVER_URL}/upload`, {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                passport: localStorage.getItem('u_pass'),
-                                name: localStorage.getItem('u_name'),
-                                tg_id: localStorage.getItem('u_tg'),
-                                image: imgBase64, 
-                                video: vidBase64, 
-                                loc: userLocation
-                            })
+                            body: fd
                         });
                         
                         const data = await res.json();
