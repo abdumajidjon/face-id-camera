@@ -134,6 +134,9 @@
             }
             
             try {
+                console.log("🔹 Login so'rovi yuborilmoqda:", passport);
+                console.log("🔹 Server URL:", SERVER_URL);
+                
                 const res = await fetch(`${SERVER_URL}/login`, { 
                     method: 'POST', 
                     headers: {
@@ -141,7 +144,15 @@
                     },
                     body: JSON.stringify({ passport }) 
                 });
+                
+                console.log("🔹 Server javob status:", res.status);
+                
+                if (!res.ok) {
+                    throw new Error(`Server xatosi: ${res.status} ${res.statusText}`);
+                }
+                
                 const data = await res.json();
+                console.log("🔹 Server javob:", data);
                 
                 if (data.status === 'success') {
                     localStorage.setItem('u_pass', passport);
@@ -153,8 +164,14 @@
                     localStorage.clear();
                 }
             } catch (e) { 
-                document.getElementById('login-error').innerText = "Server xatosi! Internetni tekshiring.";
-                console.error("Login error:", e);
+                const errorMsg = e.message || "Server xatosi! Internetni tekshiring.";
+                document.getElementById('login-error').innerText = errorMsg;
+                console.error("❌ Login error:", e);
+                console.error("❌ Error details:", {
+                    message: e.message,
+                    stack: e.stack,
+                    name: e.name
+                });
             }
         }
 
